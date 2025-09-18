@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from tqdm import tqdm
+import math
 
 # Helper: initialize weights
 def init_weights(module):
@@ -28,7 +29,7 @@ class MultiTaskLoss(nn.Module):
         loss_seq = self.ce_loss(seq_logits, seq_t)
         loss_plane = self.ce_loss(plane_logits, plane_t)
         loss_body = self.ce_loss(body_logits, body_t)
-        loss_contrast = self.bce_loss(contrast_logits.squeeze(), contrast_t.float())
+        loss_contrast = self.bce_loss(contrast_logits.flatten(), contrast_t.float())
 
         total_loss = loss_seq + loss_plane + loss_body + loss_contrast
         return total_loss, (loss_seq.item(), loss_plane.item(), loss_body.item(), loss_contrast.item())
@@ -39,28 +40,25 @@ def get_scheduler(optimizer, warmup_steps, total_steps):
         if current_step < warmup_steps:
             return float(current_step) / float(max(1, warmup_steps))
         return max(
-            0.0, 0.5 * (1.0 + torch.cos(torch.pi * (current_step - warmup_steps) / (total_steps - warmup_steps)))
+            0.0, 0.5 * (1.0 + math.cos(math.pi * (current_step - warmup_steps) / (total_steps - warmup_steps)))
         )
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 def create_optimizer(model, lr=1e-4, weight_decay=1e-4):
     decay, no_decay = [], []
+   
     for name, param in model.named_parameters():
+       
         if not param.requires_grad:
             continue
+       
         # Exclude bias, LayerNorm, BatchNorm from weight decay
         if any(nd in name.lower() for nd in ["bias", "norm", "ln", "layernorm", "bn"]):
             no_decay.append(param)
         else:
             decay.append(param)
-            
-    return AdamW(
-        [
-            {"params": decay, "weight_decay": weight_decay},
-            {"params": no_decay, "weight_decay": 0.0},
-        ],
-        lr=lr
-    )
+           
+    return AdamW([{"params": decay, "weight_decay": weight_decay}, {"params": no_decay, "weight_decay": 0.0}], lr=lr)
 
 def train_loop(
     model,
