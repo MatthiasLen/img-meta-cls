@@ -7,7 +7,7 @@
     scheduling is included.
 
     This class handles the training loop, model optimization, and checkpointing,
-    ensuring that the GradScaler's internal state is saved and restored correctly.
+    ensuring that the GradScaler's internal state is saved correctly.
     This enables seamless resumption of mixed precision training without
     disrupting the dynamic loss scaling process.
 
@@ -331,18 +331,15 @@ if __name__ == "__main__":
     from dummy_dataloader import DummyMRIDataset
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("DEVICE:", device)
+    print("=== TRAINING ON DEVICE: {device} ===")
 
     cl_d = {"sequence": 5, "plane": 3, "body": 5, "contrast": 1}
 
-    dummy_dataset_train = DummyMRIDataset(img_size = 300, num_samples=200,  n_slices = 5, metadata_dim = 3*256, num_classes_dict=cl_d)
+    dummy_dataset_train = DummyMRIDataset(img_size = 224, num_samples=200,  n_slices = 5, metadata_dim = 3*256, num_classes_dict=cl_d)
     dummy_loader_train = DataLoader(dummy_dataset_train, batch_size=8,shuffle=True)
 
-    dummy_dataset_val = DummyMRIDataset(img_size = 300, num_samples=50,  n_slices = 5, metadata_dim = 3*256,  num_classes_dict=cl_d)
+    dummy_dataset_val = DummyMRIDataset(img_size = 224, num_samples=50,  n_slices = 5, metadata_dim = 3*256,  num_classes_dict=cl_d)
     dummy_loader_val = DataLoader(dummy_dataset_val, batch_size=8,shuffle=True)
-
-    # Assume you have your dataset and dataloaders ready: train_loader, val_loader
-    # Each batch from dataloader returns: images (B,N,C,H,W), metadata (B,meta_dim), targets = (seq_t, plane_t, body_t, contrast_t)
 
     model = MRISequenceClassifier(metadata_input_dim=256*3, num_classes_dict=cl_d)
 

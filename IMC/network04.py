@@ -94,6 +94,8 @@ class MultiSliceImageEncoder(nn.Module):
 
         self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.slice_feat_dim = slice_feat_dim  # 512 for ResNet18 last conv
+        
+        assert self.slice_feat_dim == 512, "ResNet18 will create featuremaps with 512 channels"
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -104,8 +106,8 @@ class MultiSliceImageEncoder(nn.Module):
         """
         B, N, C, H, W = x.shape
         x = x.view(B * N, C, H, W)  # treat slices as batch
-
-        features = self.cnn(x)  # (B*N, 512, H', W')
+        
+        features = self.cnn(x)  # (B*N, 512, H', W') since last conv layer of ResNet has 512 feature maps
         features = self.global_avg_pool(features).view(
             B, N, self.slice_feat_dim
         )  # (B, N, 512)
