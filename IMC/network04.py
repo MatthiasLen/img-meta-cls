@@ -1,50 +1,50 @@
 """
-VERSION 0.4
-2025/09/18
+    VERSION 0.4
+    2025/09/18
 
-Updates / Change-log:
+    Updates / Change-log:
 
-1. Implemented Bi-Directional Cross-Attention embedding fusion. This is how it works:
-Both modalities are projected to the same dimension.
-Image embedding queries metadata embedding to get info from metadata relevant to image features.
-Metadata embedding queries image embedding similarly.
-Each attention output passes through a Transformer-style feedforward block with residuals and normalization.
-Finally, concatenate both outputs and project down to a fixed output dimension.
+    1. Implemented Bi-Directional Cross-Attention embedding fusion. This is how it works:
+    Both modalities are projected to the same dimension.
+    Image embedding queries metadata embedding to get info from metadata relevant to image features.
+    Metadata embedding queries image embedding similarly.
+    Each attention output passes through a Transformer-style feedforward block with residuals and normalization.
+    Finally, concatenate both outputs and project down to a fixed output dimension.
 
-2. Added a residual connection and layer normalization in SliceFeatureFusion to improve training stability.
+    2. Added a residual connection and layer normalization in SliceFeatureFusion to improve training stability.
 
-3. Improved initialization of CNN backbone. RGB filters from pretrained weights are averaged to obtain a 
-grayscale image filter that can be used for the 1-channel convolution.
+    3. Improved initialization of CNN backbone. RGB filters from pretrained weights are averaged to obtain a 
+    grayscale image filter that can be used for the 1-channel convolution.
 
-4. MetadataEncoder was extended a bit to incorporate a residual block , dropout and layer normalization.
+    4. MetadataEncoder was extended a bit to incorporate a residual block , dropout and layer normalization.
 
 
-High-level architecture Diagram:
+    High-level architecture Diagram:
 
-A) Multiple Slices (N x 2D images) ---> Shared CNN Backbone
+    A) Multiple Slices (N x 2D images) ---> Shared CNN Backbone
+                                                |
+                                        Slice Embeddings
+                                                |
+                        Slice Embeddings Fusion with Multi-Head Self-Attention
+                                                |
+                                Fused Image Feature Vector (f_img)
+
+
+    B)                          DICOM Metadata Vector 
+                        (assuming single vector per volumetric image)
+                (concatenate slice embeddings if needed and feed concatednated vector) 
                                             |
-                                    Slice Embeddings
+                                    Metadata Encoder 
                                             |
-                    Slice Embeddings Fusion with Multi-Head Self-Attention
-                                            |
-                            Fused Image Feature Vector (f_img)
+                                    Metadata Embedding (f_meta)
 
 
-B)                          DICOM Metadata Vector 
-                    (assuming single vector per volumetric image)
-            (concatenate slice embeddings if needed and feed concatednated vector) 
-                                        |
-                                Metadata Encoder 
-                                        |
-                                Metadata Embedding (f_meta)
-
-
-C) Bi-Directional Cross-Modal Attention Fusion ---> Multi-task Output Heads
-                                                              |
-               _______________________________________________|_____________
-               |                  |                     |                   |
-        Sequence Classifier   Plane Classifier   Body Region Classifier   Contrast Classifier
-           (Softmax)            (Softmax)            (Softmax)               (Sigmoid)
+    C) Bi-Directional Cross-Modal Attention Fusion ---> Multi-task Output Heads
+                                                                |
+                _______________________________________________|_____________
+                |                  |                     |                   |
+            Sequence Classifier   Plane Classifier   Body Region Classifier   Contrast Classifier
+            (Softmax)            (Softmax)            (Softmax)               (Sigmoid)
 
 """
 

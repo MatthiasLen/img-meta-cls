@@ -11,7 +11,6 @@
     This enables seamless resumption of mixed precision training without
     disrupting the dynamic loss scaling process.
 
-
 """
 
 from typing import Union
