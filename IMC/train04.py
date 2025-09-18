@@ -53,12 +53,13 @@ def create_optimizer(model, lr=1e-4, weight_decay=1e-4):
             no_decay.append(param)
         else:
             decay.append(param)
+            
     return AdamW(
         [
             {"params": decay, "weight_decay": weight_decay},
             {"params": no_decay, "weight_decay": 0.0},
         ],
-        lr=lr,
+        lr=lr
     )
 
 def train_loop(
@@ -187,6 +188,7 @@ def train_loop(
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
+                'scaler_state_dict': scaler.state_dict()
             }, save_path)
         else:
             epochs_no_improve += 1
@@ -198,7 +200,7 @@ def train_loop(
 
         # Optionally log LR
         current_lr = scheduler.get_last_lr()[0]
-        print(f"Current LR: {current_lr:.6e}")
+        print(f"Current LR: {current_lr:.6e} | Current Scale: {last_scale:.6e}")
 
     print("Training complete.")
 
