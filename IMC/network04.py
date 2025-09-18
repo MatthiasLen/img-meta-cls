@@ -1,7 +1,8 @@
 """
 VERSION 0.4
+2025/09/18
 
-Updates:
+Updates / Change-log:
 
 1. Implemented Bi-Directional Cross-Attention embedding fusion. This is how it works:
 Both modalities are projected to the same dimension.
@@ -10,22 +11,32 @@ Metadata embedding queries image embedding similarly.
 Each attention output passes through a Transformer-style feedforward block with residuals and normalization.
 Finally, concatenate both outputs and project down to a fixed output dimension.
 
-2. added a residual connection and layer normalization in SliceFeatureFusion
+2. Added a residual connection and layer normalization in SliceFeatureFusion to improve training stability.
 
-3. Improved initialization of CNN backbone. RGB filters are averaged to obtain a grayscale image filter
+3. Improved initialization of CNN backbone. RGB filters from pretrained weights are averaged to obtain a 
+grayscale image filter that can be used for the 1-channel convolution.
 
-Architecture Diagram:
+4. MetadataEncoder was extended a bit to incorporate a residual block , dropout and layer normalization.
+
+
+High-level architecture Diagram:
 
 A) Multiple Slices (N x 2D images) ---> Shared CNN Backbone
-                                          |
-                                  Slice Embeddings
-                                          |
-                  Slice Embeddings Fusion with Multi-Head Self-Attention
-                                          |
-                           Fused Image Feature Vector (f_img)
+                                            |
+                                    Slice Embeddings
+                                            |
+                    Slice Embeddings Fusion with Multi-Head Self-Attention
+                                            |
+                            Fused Image Feature Vector (f_img)
 
 
-B) DICOM Metadata Vector (single vector per volumetric image) ---> Metadata Encoder ---> Metadata Embedding (f_meta)
+B)                          DICOM Metadata Vector 
+                    (assuming single vector per volumetric image)
+            (concatenate slice embeddings if needed and feed concatednated vector) 
+                                        |
+                                Metadata Encoder 
+                                        |
+                                Metadata Embedding (f_meta)
 
 
 C) Bi-Directional Cross-Modal Attention Fusion ---> Multi-task Output Heads
@@ -178,25 +189,56 @@ class SliceFeatureFusion(nn.Module):
         return fused
 
 
+
 class MetadataEncoder(nn.Module):
     """
-    Encodes DICOM metadata vector into a compact embedding.
+    Encodes DICOM metadata vectors into a compact, dense embedding suitable for fusion with image features.
+
+    This module applies a two-layer fully connected neural network with ReLU activations to transform
+    high-dimensional metadata inputs into a lower-dimensional embedding space.
+
+    Args:
+        input_dim (int): Dimensionality of the input metadata vector.
+        embed_dim (int, optional): Desired dimensionality of the output embedding. Default is 128.
+
+    Inputs:
+        x (torch.Tensor): A tensor of shape (B, input_dim) representing the batch of metadata vectors.
+
+    Outputs:
+        torch.Tensor: A tensor of shape (B, embed_dim) representing the encoded metadata embeddings.
     """
-
-    def __init__(self, input_dim: int, embed_dim: int = 128):
+    
+    def __init__(self, input_dim : int , embed_dim : int = 128):
         super().__init__()
-        self.fc = nn.Sequential(
-            nn.Linear(input_dim, 256), nn.ReLU(), nn.Linear(256, embed_dim), nn.ReLU()
+        
+        hidden_dim = max(128, input_dim // 2)
+        self.input_proj = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2)
         )
+        
+        self.resblock = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+        )
+        
+        self.output_proj = nn.Sequential(
+            nn.Linear(hidden_dim, embed_dim),
+            nn.LayerNorm(embed_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+        )
+        
+    def forward(self, x : torch.Tensor) -> torch.Tensor:
+        x = self.input_proj(x)
+        x = x + self.resblock(x)
+        x = self.output_proj(x)
+        return x
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x (torch.Tensor): Metadata tensor of shape (B, input_dim)
-        Returns:
-            torch.Tensor: Metadata embedding of shape (B, embed_dim)
-        """
-        return self.fc(x)
 
 
 class MultiTaskHead(nn.Module):
@@ -391,9 +433,11 @@ class MRISequenceClassifier(nn.Module):
         Returns:
             tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
         """
+        
         # Encode image slices
         slice_feats = self.image_encoder(image_slices)  # (B, N_slices, slice_feat_dim)
         fused_img_feat = self.slice_fusion(slice_feats)  # (B, fused_feat_dim)
+        
         # Encode metadata
         metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim)
         # Fuse features from image embedding and meta data embedding
