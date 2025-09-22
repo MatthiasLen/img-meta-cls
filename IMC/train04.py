@@ -23,6 +23,7 @@ from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
+import numpy as np
 
 
 def init_weights(module: nn.Module) -> None:
@@ -78,20 +79,34 @@ class MultiTaskLoss(nn.Module):
 
     def forward(
         self,
-        preds: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
-        targets: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-    ) -> tuple[torch.Tensor, tuple[float, float, float, float]]:
+        preds: tuple,
+        targets: tuple
+    ) -> list:
   
-        seq_logits, plane_logits, body_logits, contrast_logits = preds
-        seq_t, plane_t, body_t, contrast_t = targets
+        #seq_logits, plane_logits, body_logits, contrast_logits = preds
+        #seq_t, plane_t, body_t, contrast_t = targets
 
-        loss_seq = self.ce_loss(seq_logits, seq_t)
-        loss_plane = self.ce_loss(plane_logits, plane_t)
-        loss_body = self.ce_loss(body_logits, body_t)
-        loss_contrast = self.bce_loss(contrast_logits.flatten(), contrast_t.float())
+        #loss_seq = self.ce_loss(seq_logits, seq_t)
+        #loss_plane = self.ce_loss(plane_logits, plane_t)
+        #loss_body = self.ce_loss(body_logits, body_t)
+        #loss_contrast = self.bce_loss(contrast_logits.flatten(), contrast_t.float())
+        
+        #total_loss = loss_seq + loss_plane + loss_body + loss_contrast
 
-        total_loss = loss_seq + loss_plane + loss_body + loss_contrast
-        return total_loss, (loss_seq.item(), loss_plane.item(), loss_body.item(), loss_contrast.item())
+        losses = []
+        total_loss = 0.
+        
+
+        for i in range(len(preds)):
+            l = 0.
+            l = self.ce_loss(preds[i], targets[i])
+            total_loss = total_loss + l
+            losses.append(l.item())
+
+            #print(f"Pred {i} shape=", preds[i].shape)
+            #print(f"Target {i} shape=", targets[i].shape)
+            
+        return total_loss, losses
 
 
 def get_scheduler(optimizer: Optimizer, warmup_steps: int, total_steps: int) -> LambdaLR:
@@ -209,7 +224,7 @@ def train_loop(
         train_loss_accum = 0.0
 
         # Track individual losses for logging
-        train_losses_seq, train_losses_plane, train_losses_body, train_losses_contrast = [], [], [], []
+        train_losses = []
 
         # Training loop for current epoch
         for batch in tqdm(train_loader, desc=f"Training Epoch {epoch + 1}/{num_epochs}"):
@@ -223,7 +238,14 @@ def train_loop(
             optimizer.zero_grad()
             
             with torch.amp.autocast("cuda"):
+                #print(f"  images.shape = {images.shape}")
+                #print(f"  metadata.shape = {metadata.shape}")
+                
                 outputs = model(images, metadata)
+                
+                #print(f"  #targets = {len(targets)}")
+                #print(f"  #outputs = {len(outputs)}")
+
                 loss, indiv_losses = criterion(outputs, targets)
 
             # Scales loss. Calls backward() on scaled loss to create scaled gradients
@@ -251,25 +273,23 @@ def train_loop(
             train_loss_accum += loss.item()
             
             # Unpack individual losses
-            loss_seq, loss_plane, loss_body, loss_contrast = indiv_losses
-            train_losses_seq.append(loss_seq)
-            train_losses_plane.append(loss_plane)
-            train_losses_body.append(loss_body)
-            train_losses_contrast.append(loss_contrast)
+            train_losses.append(indiv_losses)
+
+            #print(train_losses)
+            #print(f"Current task-specific average losses: {np.average(train_losses, axis=0)}")
+
 
         avg_train_loss = train_loss_accum / len(train_loader)
-        avg_seq = sum(train_losses_seq) / len(train_losses_seq)
-        avg_plane = sum(train_losses_plane) / len(train_losses_plane)
-        avg_body = sum(train_losses_body) / len(train_losses_body)
-        avg_contrast = sum(train_losses_contrast) / len(train_losses_contrast)
+        avg_ind = np.average(train_losses, axis=0)
+
 
         print(f"Epoch {epoch+1} Train Loss: {avg_train_loss:.4f} "
-              f"(Seq: {avg_seq:.4f}, Plane: {avg_plane:.4f}, Body: {avg_body:.4f}, Contrast: {avg_contrast:.4f})")
+              f"(Individual task losses: {avg_ind})")
 
         # Validation step
         model.eval()
         val_loss_accum = 0.0
-        val_losses_seq, val_losses_plane, val_losses_body, val_losses_contrast = [], [], [], []
+        val_losses = []
 
         with torch.no_grad():
             for batch in val_loader:
@@ -283,20 +303,14 @@ def train_loop(
                     loss, indiv_losses = criterion(outputs, targets)
 
                 val_loss_accum += loss.item()
-                loss_seq, loss_plane, loss_body, loss_contrast = indiv_losses
-                val_losses_seq.append(loss_seq)
-                val_losses_plane.append(loss_plane)
-                val_losses_body.append(loss_body)
-                val_losses_contrast.append(loss_contrast)
+                val_losses.append(indiv_losses)
 
         avg_val_loss = val_loss_accum / len(val_loader)
-        avg_val_seq = sum(val_losses_seq) / len(val_losses_seq)
-        avg_val_plane = sum(val_losses_plane) / len(val_losses_plane)
-        avg_val_body = sum(val_losses_body) / len(val_losses_body)
-        avg_val_contrast = sum(val_losses_contrast) / len(val_losses_contrast)
+        avg_ind = np.average(val_losses, axis=0)
+
 
         print(f"Epoch {epoch+1} Validation Loss: {avg_val_loss:.4f} "
-              f"(Seq: {avg_val_seq:.4f}, Plane: {avg_val_plane:.4f}, Body: {avg_val_body:.4f}, Contrast: {avg_val_contrast:.4f})")
+              f"(Individual losses: {avg_ind})")
 
         # Early stopping & checkpointing
         if avg_val_loss < best_val_loss:
@@ -329,26 +343,42 @@ if __name__ == "__main__":
     from torch.utils.data import DataLoader
     from network04 import MRISequenceClassifier
     from dummy_dataloader import DummyMRIDataset
+    from liver_dataloader01 import LiverDataset
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("=== TRAINING ON DEVICE: {device} ===")
+    print(f"=== TRAINING ON DEVICE: {device} ===")
 
-    cl_d = {"sequence": 5, "plane": 3, "body": 5, "contrast": 1}
+    if False:
+        cl_d = {"sequence": 5, "plane": 3, "body": 5, "contrast": 1}
+    
+        dummy_dataset_train = DummyMRIDataset(img_size = 224, num_samples=200,  n_slices = 5, metadata_dim = 3*256, num_classes_dict=cl_d)
+        dummy_loader_train = DataLoader(dummy_dataset_train, batch_size=8,shuffle=True)
+    
+        dummy_dataset_val = DummyMRIDataset(img_size = 224, num_samples=50,  n_slices = 5, metadata_dim = 3*256,  num_classes_dict=cl_d)
+        dummy_loader_val = DataLoader(dummy_dataset_val, batch_size=8,shuffle=True)
 
-    dummy_dataset_train = DummyMRIDataset(img_size = 224, num_samples=200,  n_slices = 5, metadata_dim = 3*256, num_classes_dict=cl_d)
-    dummy_loader_train = DataLoader(dummy_dataset_train, batch_size=8,shuffle=True)
+    # liver dataset
+    dummy_dataset = LiverDataset(num_samples=200, n_slices=5, metadata_dim=3 * 256, label_path="~/pvai_labels_20250603.csv")
+    dummy_loader = DataLoader(dummy_dataset, batch_size=8, shuffle=True)
 
-    dummy_dataset_val = DummyMRIDataset(img_size = 224, num_samples=50,  n_slices = 5, metadata_dim = 3*256,  num_classes_dict=cl_d)
-    dummy_loader_val = DataLoader(dummy_dataset_val, batch_size=8,shuffle=True)
+    cl_d = dummy_dataset.get_n_labels()
+    print("Label config", cl_d)
+    
+    #for batch_idx, (images, metadata, targets) in enumerate(dummy_loader):
+    #    print(f"Batch {batch_idx}:")
+    #    print(f"  images.shape = {images.shape}")  # (B, N_slices, C, H, W)
+    #    print(f"  metadata.shape = {metadata.shape}")  # (B, metadata_dim)
+    #    print(f"  targets shapes = {[t.shape for t in targets]}")
+    
 
     model = MRISequenceClassifier(metadata_input_dim=256*3, num_classes_dict=cl_d)
 
     train_loop(
         model=model,
-        train_loader=dummy_loader_train,
-        val_loader=dummy_loader_val,
+        train_loader=dummy_loader,
+        val_loader=dummy_loader,
         num_epochs=50,
         device=device,
         save_path="best_model.pth",
-        warmup_steps=500,
+        warmup_steps=20,
     )

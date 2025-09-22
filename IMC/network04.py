@@ -258,10 +258,16 @@ class MultiTaskHead(nn.Module):
             nn.Dropout(0.3),
         )
 
-        self.seq_head = self.make_task_head(input_dim, num_classes_dict["sequence"])
-        self.plane_head = self.make_task_head(input_dim, num_classes_dict["plane"])
-        self.body_head = self.make_task_head(input_dim, num_classes_dict["body"])
-        self.contrast_head = self.make_task_head(input_dim, 1)
+        #self.seq_head = self.make_task_head(input_dim, num_classes_dict["sequence"])
+        #self.plane_head = self.make_task_head(input_dim, num_classes_dict["plane"])
+        #self.body_head = self.make_task_head(input_dim, num_classes_dict["body"])
+        #self.contrast_head = self.make_task_head(input_dim, 1)
+
+        self.tasks_heads = nn.ModuleList()
+        for k in num_classes_dict:
+            self.tasks_heads.append(self.make_task_head(input_dim, num_classes_dict[k]))
+
+        print("Task head configuration", self.tasks_heads)
 
     def make_task_head(self, in_dim: int, out_dim: int) -> nn.Sequential:
         """
@@ -286,19 +292,20 @@ class MultiTaskHead(nn.Module):
             nn.Linear(hidden_dim2, out_dim),
         )
 
-    def forward(self, x: torch.Tensor) -> tuple:
+    def forward(self, x: torch.Tensor) -> list:
         """
         Args:
             x (torch.Tensor): Joint feature embedding (B, input_dim)
         Returns:
-            tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
+            list: head logits
         """
         shared_feat = self.shared_fc(x)
-        seq_logits = self.seq_head(shared_feat)
-        plane_logits = self.plane_head(shared_feat)
-        body_logits = self.body_head(shared_feat)
-        contrast_logits = self.contrast_head(shared_feat)
-        return seq_logits, plane_logits, body_logits, contrast_logits
+        res = [head(x) for head in self.tasks_heads]
+        #seq_logits = self.seq_head(shared_feat)
+        #plane_logits = self.plane_head(shared_feat)
+        #body_logits = self.body_head(shared_feat)
+        #contrast_logits = self.contrast_head(shared_feat)
+        return res
 
 
 class BiDirectionalCrossModalAttentionFusion(nn.Module):
@@ -482,10 +489,10 @@ if __name__ == "__main__":
     metadata = torch.randn(batch_size, num_slices * metadata_dim)
 
     # Forward pass
-    seq_logits, plane_logits, body_logits, contrast_logits = model(images, metadata)
+    res = model(images, metadata)
 
     # Print output shapes for verification
-    print("Sequence logits shape:", seq_logits.shape)  # (B, num_seq_classes)
-    print("Plane logits shape:", plane_logits.shape)  # (B, num_plane_classes)
-    print("Body logits shape:", body_logits.shape)  # (B, num_body_classes)
-    print("Contrast logits shape:", contrast_logits.shape)  # (B, num_contrast_classes)
+    for r in res:
+        print(r.shape)
+
+        
