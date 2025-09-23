@@ -231,6 +231,7 @@ def train_loop(
         
         # Training loop for current epoch
         for batch in tqdm(train_loader, desc=f"Training Epoch {epoch + 1}/{num_epochs}"):
+            #print("Times cached:",train_loader.dataset.get_cache_size())
             batch_id+=1
             
             # unpack batch
@@ -308,6 +309,9 @@ def train_loop(
                 targets = [t.to(device) for t in targets]
 
                 with torch.autocast("cuda"):
+                    # Normalize per sample 
+                    images = normalize_per_sample(images)
+                
                     outputs = model(images, metadata)
                     loss, indiv_losses = criterion(outputs, targets)
 
@@ -342,7 +346,7 @@ def train_loop(
 
         # Optionally log LR
         current_lr = scheduler.get_last_lr()[0]
-        print(f"Current LR: {current_lr:.6e} | Current Scale: {last_scale:.6e}")
+        print(f"Current LR: {current_lr:.6e} | Current Scale: {last_scale:.6e}\n")
 
     print("Training complete.")
 
@@ -360,11 +364,11 @@ if __name__ == "__main__":
     if False:
         cl_d = {"sequence": 5, "plane": 3, "body": 5, "contrast": 1}
     
-        dummy_dataset_train = DummyMRIDataset(img_size = 224, num_samples=200,  n_slices = 5, metadata_dim = 3*256, num_classes_dict=cl_d)
-        dummy_loader_train = DataLoader(dummy_dataset_train, batch_size=8,shuffle=True)
+        dummy_dataset_train = DummyMRIDataset(img_size = 224, num_samples=256,  n_slices = 5, metadata_dim = 3*256, num_classes_dict=cl_d)
+        dummy_loader_train = DataLoader(dummy_dataset_train, batch_size=16,shuffle=True)
     
-        dummy_dataset_val = DummyMRIDataset(img_size = 224, num_samples=50,  n_slices = 5, metadata_dim = 3*256,  num_classes_dict=cl_d)
-        dummy_loader_val = DataLoader(dummy_dataset_val, batch_size=8,shuffle=True)
+        dummy_dataset_val = DummyMRIDataset(img_size = 224, num_samples=64,  n_slices = 5, metadata_dim = 3*256,  num_classes_dict=cl_d)
+        dummy_loader_val = DataLoader(dummy_dataset_val, batch_size=16,shuffle=True)
 
     # liver dataset
     dummy_dataset = LiverDataset(num_samples=200, n_slices=5, metadata_dim=3 * 256, label_path="~/pvai_labels_20250603.csv")

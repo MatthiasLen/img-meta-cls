@@ -67,6 +67,7 @@ def normalize_per_sample(batch):
     Returns:
         Tensor: normalized batch, same shape as input
     """
+    
     B, N, C, H, W = batch.shape
     # Compute mean and std per sample across all slices and pixels
     # Shape of mean/std: (B, 1, 1, 1, 1) to broadcast correctly
@@ -78,5 +79,5 @@ def normalize_per_sample(batch):
     
     # Normalize batch with broadcasting
     batch_norm = (batch - mean) / std
-    
+
     return batch_norm

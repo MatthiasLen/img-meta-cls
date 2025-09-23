@@ -3,6 +3,10 @@ import logging
 from ast import literal_eval
 from typing import Any, Dict, List, Tuple
 
+
+import copy 
+import random
+
 import elasticdeform
 import numpy as np
 import pandas as pd
@@ -13,7 +17,6 @@ from pydicom import FileDataset, dcmread
 from pydicom.filebase import DicomBytesIO
 from skimage.filters import gaussian
 from torch.utils.data import DataLoader, Dataset
-import copy 
 
 log = logging.getLogger("augment")
 
@@ -1419,7 +1422,10 @@ class LiverDataset(Dataset):
             r[x] = n
         return r
 
-
+    def get_cache_size(self):
+        sz = len(self.img_buffer)
+        return sz
+        
     def get_bucket_filelist(self, path_dicom_folder):
         bucket_name, folder_filename = path_dicom_folder[5:].split("/", 1)
         
@@ -1436,7 +1442,7 @@ class LiverDataset(Dataset):
         return bucket_name, folder_filename, self.slice_filenames[folder_filename] 
 
                 
-    def open_dicom_slice_from_series(self, path_dicom_folder: str, type: str = "random", stop_before_pixels: bool = True) -> FileDataset:
+    def open_dicom_slice_from_series(self, path_dicom_folder: str, sampling_type: str = "equidistant", stop_before_pixels: bool = True, n_images : int = 1) -> FileDataset:
         """Open a single slice given the path to a dicom folder (containing a whole
         dicom series).
     
@@ -1466,51 +1472,79 @@ class LiverDataset(Dataset):
 
         if not slice_filenames:
             raise RuntimeError(f"No DICOM files found in bucket path: {path_dicom_folder}")
-        
-        # select slice idx by type
-        slice_idx = 0
-        if type == "random":
-            slice_idx = np.random.randint(0, len(slice_filenames))
-        elif type == "center":
-            slice_idx = len(slice_filenames) // 2
 
-        # key for buffering
-        fid = f"{bucket_name}-{slice_filenames[slice_idx]}"
+        # --- get indices of slices that need to be loaded ---
+        N = len(slice_filenames)
+        slice_inds = []
         
-        if not (fid in self.img_buffer):
-            # read single slice:
-            bucket = self.gcs_client.get_bucket(bucket_name)
-            blob = bucket.blob(slice_filenames[slice_idx])
-            file_obj = DicomBytesIO()
-            blob.download_to_file(file_obj)
-            file_obj.seek(0)
-            self.img_buffer[fid] = dcmread(file_obj, stop_before_pixels=stop_before_pixels)
+        # offset computation
+        f = N // n_images
+        off = min(f//4,2)*n_images
+        
+        # sample distinct random slices
+        if n_images <= N:
+            if sampling_type == "random":
+                slice_inds = random.sample(range(off,N-off), n_images)
+            else:
+                slice_inds = [int(x) for x in np.linspace(off, N-1-off, n_images)]
+        else:
+            slice_inds = list(range(N)) + [None]*(n_images-N)
 
-        slice_image =  copy.deepcopy(self.img_buffer[fid])
         
-    
-        return slice_image
+        # --- load slices from buffer or from the GCP bucket ---
+        slice_images = []
+        for slice_idx in slice_inds:
+            # skip non-values. will be converted to black slices later
+            if slice_idx is None:
+                slice_images.append(None)
+                continue
+                
+            # key for buffering
+            fid = f"{bucket_name}-{slice_filenames[slice_idx]}"
+            
+            if not (fid in self.img_buffer):
+                # read single slice:
+                bucket = self.gcs_client.get_bucket(bucket_name)
+                blob = bucket.blob(slice_filenames[slice_idx])
+                file_obj = DicomBytesIO()
+                blob.download_to_file(file_obj)
+                file_obj.seek(0)
+
+                # read dicom image
+                dcm_image = dcmread(file_obj, stop_before_pixels=stop_before_pixels)
+
+                # covert to numpy array and store in buffer
+                self.img_buffer[fid] = dcm_image.pixel_array.astype(np.float32)
+       
+            slice_images.append(copy.deepcopy(self.img_buffer[fid]))
+        
+        return slice_images
         
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...]]:
         
         # --- IMAGES ---
         image_list = []
-        for _n in range(self.n_slices):
-            dcm_image = self.open_dicom_slice_from_series(self.path_list[idx], type="random", stop_before_pixels=False)
-            image = dcm_image.pixel_array.astype(np.float32)
+        
+        dcm_images = self.open_dicom_slice_from_series(self.path_list[idx], sampling_type="equidistant", stop_before_pixels=False, n_images = self.n_slices)
 
+        for image in dcm_images:
+            
+            # we dont accept images with channel dimension
+            if (image is None) or (len(image.shape)>2):
+                 image = np.zeros((244, 244), dtype=np.float32)
+                
             # in dicom series, channel dimension is first, so we need to transpose it
             # TODO: When does this happen ? We want GV images only
-            if len(image.shape) == 3:
-                log.warning(f"Multi-channel image detected (shape {image.shape})! File: {self.path_list[idx]}")
-                if  image.shape[0] == 1:
-                    image = image[0]
-                else:
-                    image = np.zeros(244,244)
+            #if len(image.shape) == 3:
+            #    log.warning(f"Multi-channel image detected (shape {image.shape})! File: {self.path_list[idx]}")
+            #    if  image.shape[0] == 1:
+            #        image = image[0]
+            #    else:
+            #        image = np.zeros(244,244)
 
             # data augmentation
-            image = augment(image, self.augment_conf)
+            #image = augment(image, self.augment_conf)
 
             #image_list.append(torch.Tensor(np.stack([image, image, image], axis=0)).to(torch.float32))
             image_list.append(torch.Tensor(image).unsqueeze(0).to(torch.float32))
