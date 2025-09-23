@@ -1458,73 +1458,69 @@ class LiverDataset(Dataset):
             the dicom slice as FileDataset, including the header, and optionally the pixel data
         """
         slice_filenames: List[str] = []
-        # on gcp bucket:
-        if path_dicom_folder.startswith("gs://"):
-            bucket_name, folder_filename, slice_filenames = self.get_bucket_filelist(path_dicom_folder)
-    
-            # select slice idx by type
-            slice_idx = 0
-            if type == "random":
-                slice_idx = np.random.randint(0, len(slice_filenames))
-            elif type == "center":
-                slice_idx = len(slice_filenames) // 2
 
-            fid = f"{bucket_name}-{slice_filenames[slice_idx]}"
-            
-            if not (fid in self.img_buffer):
-                # read single slice:
-                bucket = self.gcs_client.get_bucket(bucket_name)
-                blob = bucket.blob(slice_filenames[slice_idx])
-                file_obj = DicomBytesIO()
-                blob.download_to_file(file_obj)
-                file_obj.seek(0)
-                self.img_buffer[fid] = dcmread(file_obj, stop_before_pixels=stop_before_pixels)
-
-            slice_image =  copy.deepcopy(self.img_buffer[fid])
-        
-        else:
+        if not  path_dicom_folder.startswith("gs://"):
             raise Exception("invalid GCP bucket provided")
+            
+        bucket_name, folder_filename, slice_filenames = self.get_bucket_filelist(path_dicom_folder)
+
+        if not slice_filenames:
+            raise RuntimeError(f"No DICOM files found in bucket path: {path_dicom_folder}")
+        
+        # select slice idx by type
+        slice_idx = 0
+        if type == "random":
+            slice_idx = np.random.randint(0, len(slice_filenames))
+        elif type == "center":
+            slice_idx = len(slice_filenames) // 2
+
+        # key for buffering
+        fid = f"{bucket_name}-{slice_filenames[slice_idx]}"
+        
+        if not (fid in self.img_buffer):
+            # read single slice:
+            bucket = self.gcs_client.get_bucket(bucket_name)
+            blob = bucket.blob(slice_filenames[slice_idx])
+            file_obj = DicomBytesIO()
+            blob.download_to_file(file_obj)
+            file_obj.seek(0)
+            self.img_buffer[fid] = dcmread(file_obj, stop_before_pixels=stop_before_pixels)
+
+        slice_image =  copy.deepcopy(self.img_buffer[fid])
+        
     
         return slice_image
         
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...]]:
-        # Create dummy MRI slices: shape (N_slices, C, H, W)
-        # images = torch.randn(self.n_slices, self.img_channels, self.img_size, self.img_size)
+        
+        # --- IMAGES ---
         image_list = []
         for _n in range(self.n_slices):
             dcm_image = self.open_dicom_slice_from_series(self.path_list[idx], type="random", stop_before_pixels=False)
             image = dcm_image.pixel_array.astype(np.float32)
 
             # in dicom series, channel dimension is first, so we need to transpose it
-            if len(image.shape) == 3 and image.shape[0] > 1:
-                image = np.transpose(image, (1, 2, 0))
+            # TODO: When does this happen ? We want GV images only
+            if len(image.shape) == 3:
+                log.warning(f"Multi-channel image detected (shape {image.shape})! File: {self.path_list[idx]}")
+                if  image.shape[0] == 1:
+                    image = image[0]
+                else:
+                    image = np.zeros(244,244)
 
             # data augmentation
             image = augment(image, self.augment_conf)
 
-            # torch default type:
-            image = image.astype(np.float32)
             #image_list.append(torch.Tensor(np.stack([image, image, image], axis=0)).to(torch.float32))
             image_list.append(torch.Tensor(image).unsqueeze(0).to(torch.float32))
             
         images = torch.stack(image_list, dim=0)  # (N_slices, C, H, W)
 
-        # Dummy metadata vector
+        # --- METADATA ---
         metadata = torch.randn(self.metadata_dim)
 
-        # Dummy targets:
-        # For multi-class classification targets, random integers in [0, num_classes-1]
-        # seq_t = torch.randint(0, self.num_classes_dict["sequence"], (1,)).squeeze()
-        # plane_t = torch.randint(0, self.num_classes_dict["plane"], (1,)).squeeze()
-        # body_t = torch.randint(0, self.num_classes_dict["body"], (1,)).squeeze()
-
-        # For contrast (binary), random 0 or 1 tensor with shape ()
-        # contrast_t = torch.randint(0, 2, (1,)).float().squeeze()
-
-        # targets = (seq_t, plane_t, body_t, contrast_t)
-
-        # get label indices:
+        # --- TARGETS ---
         label_idx_dict: Dict[str, int] = {}
 
         for label_class, label_value in self.labels[idx].items():

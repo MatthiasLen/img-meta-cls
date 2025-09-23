@@ -25,6 +25,7 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 import numpy as np
 
+from helper import plot_batch_per_sample, normalize_per_sample
 
 def init_weights(module: nn.Module) -> None:
     """
@@ -226,8 +227,11 @@ def train_loop(
         # Track individual losses for logging
         train_losses = []
 
+        batch_id = 0
+        
         # Training loop for current epoch
         for batch in tqdm(train_loader, desc=f"Training Epoch {epoch + 1}/{num_epochs}"):
+            batch_id+=1
             
             # unpack batch
             images, metadata, targets = batch
@@ -241,11 +245,16 @@ def train_loop(
                 #print(f"  images.shape = {images.shape}")
                 #print(f"  metadata.shape = {metadata.shape}")
                 
-                outputs = model(images, metadata)
-                
-                #print(f"  #targets = {len(targets)}")
-                #print(f"  #outputs = {len(outputs)}")
+                # Normalize per sample 
+                images = normalize_per_sample(images)
 
+                # Plot batch
+                #plot_batch_per_sample(images, title="Each Row = One Sample (5 Images)", id = f"ep{epoch}_b{batch_id}")
+
+                # Forward
+                outputs = model(images, metadata)
+
+                # Compute losses
                 loss, indiv_losses = criterion(outputs, targets)
 
             # Scales loss. Calls backward() on scaled loss to create scaled gradients
