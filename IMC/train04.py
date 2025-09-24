@@ -79,12 +79,7 @@ class MultiTaskLoss(nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         self.bce_loss = nn.BCEWithLogitsLoss()
 
-    def forward(
-        self,
-        preds: tuple,
-        targets: tuple
-    ) -> list:
-  
+    def forward(self, preds: tuple, targets: tuple) -> list:
         losses = []
         total_loss = 0.
         
@@ -101,8 +96,8 @@ def get_scheduler(
     optimizer: Optimizer,
     warmup_steps: int,
     total_steps: int,
-    min_lr_ratio: float = 0.01,
-    start_lr_ratio: float = 0.1
+    peak_scale_factor : float = 100,
+    min_scale_factor : float = 0.1
 ) -> LambdaLR:
     """
     Warmup + cosine decay scheduler with learning rates expressed as ratios of initial LR.
@@ -111,24 +106,24 @@ def get_scheduler(
         optimizer: Optimizer whose lr will be scheduled.
         warmup_steps: Number of warmup steps.
         total_steps: Total number of steps.
-        min_lr_ratio: Minimum lr as a fraction of initial lr (default 1%).
-        start_lr_ratio: Start lr as fraction of initial lr (default 10%).
-
     Returns:
         LambdaLR scheduler.
     """
     
     def lr_lambda(current_step: int) -> float:
-        if (current_step < warmup_steps) and (warmup_steps > 0):
-            return max(0.001, float(current_step) / warmup_steps)
-        else:
+        if (current_step <= warmup_steps) and (warmup_steps > 0):
+            return max(1, peak_scale_factor * float(current_step) / warmup_steps)
+        elif  (current_step > warmup_steps) and (current_step <= total_steps):
             progress = float(current_step - warmup_steps) / max(1, total_steps - warmup_steps)
-            return max(0.0001, 0.5 * (1 + math.cos(math.pi * progress)))
+            a = math.cos(math.pi * progress)
+            return max(min_scale_factor, peak_scale_factor * 0.5 * (1 + a))
+        else:
+            return min_scale_factor
 
     return LambdaLR(optimizer, lr_lambda)
 
 
-def create_optimizer(model: torch.nn.Module, lr: float = 3e-4, weight_decay: float = 1e-2) -> Optimizer:
+def create_optimizer(model: torch.nn.Module, lr: float = 1.0e-6, weight_decay: float = 1e-2) -> Optimizer:
     """
     AdamW optimizer with separate weight decay for bias and norm layers.
 
@@ -214,10 +209,9 @@ def train_loop(
     total_steps = num_epochs * steps_per_epoch
     warmup_steps = int(0.1 * total_steps)  # warmup for 10% of total steps
 
-    optimizer = create_optimizer(model, lr=3e-4)  # base LR for batch size 16
+    optimizer = create_optimizer(model, lr=1.0e-6)  
     scheduler = get_scheduler(optimizer, warmup_steps, total_steps)
-    scheduler.step()
-    
+
     # loss
     criterion = MultiTaskLoss(label_smoothing=0.1)
 
@@ -242,7 +236,7 @@ def train_loop(
         
         # --- Training loop for current epoch ---
         for batch in tqdm(train_loader, desc=f"Training Epoch {epoch + 1}/{num_epochs}"):
-            batch_id+=1
+            batch_id += 1
             
             # unpack batch
             images, metadata, targets = batch
@@ -285,8 +279,7 @@ def train_loop(
             #if last_scale <= (current_scale * 1.001):
             #    scheduler.step()
             last_scale  = current_scale
-
- 
+            scheduler.step()
 
             # Optionally log LR and scale
             print(f"Current Scale: {last_scale:.6e}")
@@ -309,7 +302,6 @@ def train_loop(
         # average losses over all batches from training loop
         avg_train_loss = train_loss_accum / len(train_loader)
         avg_ind = np.average(train_losses, axis=0)
-
 
         print(f"Epoch {epoch+1} Train Loss: {avg_train_loss:.4f} "
               f"(Individual task losses: {avg_ind})")
@@ -339,7 +331,6 @@ def train_loop(
         avg_val_loss = val_loss_accum / len(val_loader)
         avg_ind = np.average(val_losses, axis=0)
 
-
         print(f"Epoch {epoch+1} Validation Loss: {avg_val_loss:.4f} "
               f"(Individual losses: {avg_ind})")
 
@@ -362,7 +353,6 @@ def train_loop(
             print("Early stopping triggered.")
             break
 
-
     print("Training complete.")
 
 
@@ -377,13 +367,13 @@ if __name__ == "__main__":
     print(f"=== TRAINING ON DEVICE: {device} ===")
 
     # liver dataset
-    dummy_dataset = LiverDataset(num_samples=256, n_slices=5, metadata_dim=3 * 256, label_path="~/pvai_labels_20250603.csv")
+    dummy_dataset = LiverDataset(num_samples=1024, n_slices=5, metadata_dim=256, label_path="~/pvai_labels_20250603.csv")
     dummy_loader = DataLoader(dummy_dataset, batch_size=16, shuffle=True)
 
     cl_d = dummy_dataset.get_n_labels()
     print("Label config", cl_d)
 
-    model = MRISequenceClassifier(metadata_input_dim=256*3, num_classes_dict=cl_d, slice_feat_dim=1024)
+    model = MRISequenceClassifier(metadata_input_dim=256, num_classes_dict=cl_d, slice_feat_dim=1024)
 
     train_loop(
         model=model,
