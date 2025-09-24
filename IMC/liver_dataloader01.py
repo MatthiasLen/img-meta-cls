@@ -1409,7 +1409,7 @@ class LiverDataset(Dataset):
             # get label idx:
             self.labels.append(row.to_dict())
 
-        print("len(self.path_list =", len(self.path_list))
+        print("len(self.path_list) =", len(self.path_list))
 
     def __len__(self: Any) -> int:
         return self.num_samples
@@ -1544,7 +1544,7 @@ class LiverDataset(Dataset):
             #        image = np.zeros(244,244)
 
             # data augmentation
-            #image = augment(image, self.augment_conf)
+            image = augment(image, self.augment_conf)
 
             #image_list.append(torch.Tensor(np.stack([image, image, image], axis=0)).to(torch.float32))
             image_list.append(torch.Tensor(image).unsqueeze(0).to(torch.float32))

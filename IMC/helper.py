@@ -81,3 +81,20 @@ def normalize_per_sample(batch):
     batch_norm = (batch - mean) / std
 
     return batch_norm
+
+def count_parameters(model):
+    """
+    Returns the total number and tranable number of parameters in a PyTorch model.
+
+    Args:
+        model (torch.nn.Module): The PyTorch model.
+
+    Returns:
+        int: Total number of parameters.
+        int: Number of trainable parameters
+    """
+    total_p =  sum(p.numel() for p in model.parameters())
+    trainable_p =  sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return total_p, trainable_p
+
+

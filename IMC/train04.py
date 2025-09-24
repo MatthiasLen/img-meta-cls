@@ -25,7 +25,8 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 import numpy as np
 
-from helper import plot_batch_per_sample, normalize_per_sample
+from helper import plot_batch_per_sample, normalize_per_sample, count_parameters
+
 
 def init_weights(module: nn.Module) -> None:
     """
@@ -84,88 +85,86 @@ class MultiTaskLoss(nn.Module):
         targets: tuple
     ) -> list:
   
-        #seq_logits, plane_logits, body_logits, contrast_logits = preds
-        #seq_t, plane_t, body_t, contrast_t = targets
-
-        #loss_seq = self.ce_loss(seq_logits, seq_t)
-        #loss_plane = self.ce_loss(plane_logits, plane_t)
-        #loss_body = self.ce_loss(body_logits, body_t)
-        #loss_contrast = self.bce_loss(contrast_logits.flatten(), contrast_t.float())
-        
-        #total_loss = loss_seq + loss_plane + loss_body + loss_contrast
-
         losses = []
         total_loss = 0.
         
-
         for i in range(len(preds)):
             l = 0.
             l = self.ce_loss(preds[i], targets[i])
             total_loss = total_loss + l
             losses.append(l.item())
-
-            #print(f"Pred {i} shape=", preds[i].shape)
-            #print(f"Target {i} shape=", targets[i].shape)
-            
+     
         return total_loss, losses
 
 
-def get_scheduler(optimizer: Optimizer, warmup_steps: int, total_steps: int) -> LambdaLR:
+def get_scheduler(
+    optimizer: Optimizer,
+    warmup_steps: int,
+    total_steps: int,
+    min_lr_ratio: float = 0.01,
+    start_lr_ratio: float = 0.1
+) -> LambdaLR:
     """
-    Creates a learning rate scheduler with a linear warmup followed by cosine decay.
-
-    The learning rate increases linearly from 0 to the optimizer's initial learning rate
-    during the warmup phase. After warmup, it follows a cosine decay schedule until total_steps.
+    Warmup + cosine decay scheduler with learning rates expressed as ratios of initial LR.
 
     Args:
-        optimizer (Optimizer): The optimizer for which to schedule the learning rate.
-        warmup_steps (int): Number of steps for the linear warmup phase.
-        total_steps (int): Total number of training steps for the schedule.
+        optimizer: Optimizer whose lr will be scheduled.
+        warmup_steps: Number of warmup steps.
+        total_steps: Total number of steps.
+        min_lr_ratio: Minimum lr as a fraction of initial lr (default 1%).
+        start_lr_ratio: Start lr as fraction of initial lr (default 10%).
 
     Returns:
-        LambdaLR: A PyTorch LambdaLR scheduler applying the warmup + cosine decay schedule.
+        LambdaLR scheduler.
     """
+    
+    def lr_lambda(current_step: int) -> float:
+        if (current_step < warmup_steps) and (warmup_steps > 0):
+            return max(0.001, float(current_step) / warmup_steps)
+        else:
+            progress = float(current_step - warmup_steps) / max(1, total_steps - warmup_steps)
+            return max(0.0001, 0.5 * (1 + math.cos(math.pi * progress)))
 
-    def lr_lambda(current_step : int) -> float:
-        if current_step < warmup_steps:
-            return float(current_step) / float(max(1, warmup_steps))   
-
-        return max(0.0, 0.5 * (1.0 + math.cos(math.pi * (current_step - warmup_steps) / (total_steps - warmup_steps))))
-
-    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    return LambdaLR(optimizer, lr_lambda)
 
 
-def create_optimizer(model: nn.Module, lr: float = 1e-4, weight_decay: float = 1e-4) -> Optimizer:
+def create_optimizer(model: torch.nn.Module, lr: float = 3e-4, weight_decay: float = 1e-2) -> Optimizer:
     """
-    Creates an AdamW optimizer with parameter groups separating parameters that
-    should and should not have weight decay applied.
-
-    Typically, biases and normalization layer parameters (e.g., LayerNorm weights) are excluded
-    from weight decay.
+    AdamW optimizer with separate weight decay for bias and norm layers.
 
     Args:
-        model (nn.Module): The model containing parameters to optimize.
-        lr (float, optional): Learning rate. Defaults to 1e-4.
-        weight_decay (float, optional): Weight decay coefficient. Defaults to 1e-4.
+        model: Model to optimize.
+        lr: Learning rate.
+        weight_decay: Weight decay.
 
     Returns:
-        Optimizer: AdamW optimizer with appropriately grouped parameters.
+        AdamW optimizer.
     """
-
-    decay, no_decay = [], []
+    decay = []
+    no_decay = []
 
     for name, param in model.named_parameters():
-
         if not param.requires_grad:
             continue
-
-        # Exclude bias, LayerNorm, BatchNorm from weight decay
         if any(nd in name.lower() for nd in ["bias", "norm", "ln", "layernorm", "bn"]):
             no_decay.append(param)
         else:
             decay.append(param)
 
-    return AdamW([{"params": decay, "weight_decay": weight_decay}, {"params": no_decay, "weight_decay": 0.0}], lr=lr)
+    return AdamW([{"params": decay, "weight_decay": weight_decay},{"params": no_decay, "weight_decay": 0.0}],lr=lr)
+
+
+def classification_losses(outputs, targets):
+    
+    assert len(outputs) == len(targets)
+
+    # iterate over tasks
+    for i in range(len(outputs)):
+        pred = outputs[i].clone().detach().cpu().numpy()
+        trag_cl = targets[i].clone().detach().cpu().numpy()
+        pred_cl = np.argmax(pred, axis=1)
+        accuracy = np.mean(np.array(pred_cl) == np.array(trag_cl))
+        print(f"Task {i} Accuracy:", accuracy)
 
 
 def train_loop(
@@ -175,7 +174,6 @@ def train_loop(
     num_epochs: int,
     device: torch.device,
     save_path: Union[str, os.PathLike],
-    warmup_steps: int = 1000,
 ) -> None:
     """
     Trains a PyTorch model with mixed precision, multi-task loss, and learning rate scheduling.
@@ -196,7 +194,6 @@ def train_loop(
         num_epochs (int): Maximum number of training epochs.
         device (torch.device): Device to run training on (CPU or CUDA).
         save_path (Union[str, os.PathLike]): File path to save the best model checkpoint.
-        warmup_steps (int, optional): Number of steps to linearly warm up the learning rate. Default is 1000.
 
     Outputs and result handling:
         Saves the best model state dict to `save_path`.
@@ -209,16 +206,30 @@ def train_loop(
     # Initialize weights once before training, do NOT overwrite pretrained weights inside backbone
     model.apply(init_weights)
 
+    # optimizer
     optimizer = create_optimizer(model)
-    total_steps = len(train_loader) * num_epochs
+
+    # lr scheduler
+    steps_per_epoch = len(train_loader)
+    total_steps = num_epochs * steps_per_epoch
+    warmup_steps = int(0.1 * total_steps)  # warmup for 10% of total steps
+
+    optimizer = create_optimizer(model, lr=3e-4)  # base LR for batch size 16
     scheduler = get_scheduler(optimizer, warmup_steps, total_steps)
+    scheduler.step()
+    
+    # loss
     criterion = MultiTaskLoss(label_smoothing=0.1)
 
+    # gradient scaler
     scaler = torch.amp.GradScaler("cuda", init_scale=2**16)
+
     best_val_loss = float("inf")
     last_scale = float("inf")
     patience = 5
     epochs_no_improve = 0
+
+    print(f"Model parameters (total, req. gradient): {count_parameters(model)}")
 
     for epoch in range(num_epochs):
         model.train()
@@ -229,9 +240,8 @@ def train_loop(
 
         batch_id = 0
         
-        # Training loop for current epoch
+        # --- Training loop for current epoch ---
         for batch in tqdm(train_loader, desc=f"Training Epoch {epoch + 1}/{num_epochs}"):
-            #print("Times cached:",train_loader.dataset.get_cache_size())
             batch_id+=1
             
             # unpack batch
@@ -242,10 +252,7 @@ def train_loop(
 
             optimizer.zero_grad()
             
-            with torch.amp.autocast("cuda"):
-                #print(f"  images.shape = {images.shape}")
-                #print(f"  metadata.shape = {metadata.shape}")
-                
+            with torch.amp.autocast("cuda"):     
                 # Normalize per sample 
                 images = normalize_per_sample(images)
 
@@ -275,9 +282,18 @@ def train_loop(
             current_scale = scaler.get_scale()
             
             # only do scheduler step if scaling is stable
-            if last_scale <= (current_scale * 1.001):
-                scheduler.step()
+            #if last_scale <= (current_scale * 1.001):
+            #    scheduler.step()
             last_scale  = current_scale
+
+ 
+
+            # Optionally log LR and scale
+            print(f"Current Scale: {last_scale:.6e}")
+            for param_group in optimizer.param_groups:
+                current_lr = param_group['lr']
+                print(f"Current Learning Rate: {current_lr:.2e}")
+            print("Sched. LR", scheduler.get_last_lr()[0])
             
             # epoch training loss
             train_loss_accum += loss.item()
@@ -285,10 +301,12 @@ def train_loop(
             # Unpack individual losses
             train_losses.append(indiv_losses)
 
+            classification_losses(outputs, targets)
+
             #print(train_losses)
             #print(f"Current task-specific average losses: {np.average(train_losses, axis=0)}")
 
-
+        # average losses over all batches from training loop
         avg_train_loss = train_loss_accum / len(train_loader)
         avg_ind = np.average(train_losses, axis=0)
 
@@ -296,7 +314,7 @@ def train_loop(
         print(f"Epoch {epoch+1} Train Loss: {avg_train_loss:.4f} "
               f"(Individual task losses: {avg_ind})")
 
-        # Validation step
+        # --- Validation step ---
         model.eval()
         val_loss_accum = 0.0
         val_losses = []
@@ -344,9 +362,6 @@ def train_loop(
             print("Early stopping triggered.")
             break
 
-        # Optionally log LR
-        current_lr = scheduler.get_last_lr()[0]
-        print(f"Current LR: {current_lr:.6e} | Current Scale: {last_scale:.6e}\n")
 
     print("Training complete.")
 
@@ -361,30 +376,14 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"=== TRAINING ON DEVICE: {device} ===")
 
-    if False:
-        cl_d = {"sequence": 5, "plane": 3, "body": 5, "contrast": 1}
-    
-        dummy_dataset_train = DummyMRIDataset(img_size = 224, num_samples=256,  n_slices = 5, metadata_dim = 3*256, num_classes_dict=cl_d)
-        dummy_loader_train = DataLoader(dummy_dataset_train, batch_size=16,shuffle=True)
-    
-        dummy_dataset_val = DummyMRIDataset(img_size = 224, num_samples=64,  n_slices = 5, metadata_dim = 3*256,  num_classes_dict=cl_d)
-        dummy_loader_val = DataLoader(dummy_dataset_val, batch_size=16,shuffle=True)
-
     # liver dataset
-    dummy_dataset = LiverDataset(num_samples=200, n_slices=5, metadata_dim=3 * 256, label_path="~/pvai_labels_20250603.csv")
-    dummy_loader = DataLoader(dummy_dataset, batch_size=8, shuffle=True)
+    dummy_dataset = LiverDataset(num_samples=256, n_slices=5, metadata_dim=3 * 256, label_path="~/pvai_labels_20250603.csv")
+    dummy_loader = DataLoader(dummy_dataset, batch_size=16, shuffle=True)
 
     cl_d = dummy_dataset.get_n_labels()
     print("Label config", cl_d)
-    
-    #for batch_idx, (images, metadata, targets) in enumerate(dummy_loader):
-    #    print(f"Batch {batch_idx}:")
-    #    print(f"  images.shape = {images.shape}")  # (B, N_slices, C, H, W)
-    #    print(f"  metadata.shape = {metadata.shape}")  # (B, metadata_dim)
-    #    print(f"  targets shapes = {[t.shape for t in targets]}")
-    
 
-    model = MRISequenceClassifier(metadata_input_dim=256*3, num_classes_dict=cl_d)
+    model = MRISequenceClassifier(metadata_input_dim=256*3, num_classes_dict=cl_d, slice_feat_dim=1024)
 
     train_loop(
         model=model,
@@ -392,6 +391,5 @@ if __name__ == "__main__":
         val_loader=dummy_loader,
         num_epochs=50,
         device=device,
-        save_path="best_model.pth",
-        warmup_steps=20,
+        save_path="best_model.pth"
     )

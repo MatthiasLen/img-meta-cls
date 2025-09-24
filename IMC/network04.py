@@ -40,7 +40,7 @@
 
 
     C) Bi-Directional Cross-Modal Attention Fusion ---> Multi-task Output Heads
-                                                                |
+                                                               |
                 _______________________________________________|_____________
                 |                  |                     |                   |
             Sequence Classifier   Plane Classifier   Body Region Classifier   Contrast Classifier
@@ -53,6 +53,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
 from torchvision.models.resnet import ResNet18_Weights
+from torchvision.models.densenet import DenseNet121_Weights
 import torch.nn.init as init
 
 
@@ -63,39 +64,74 @@ class MultiSliceImageEncoder(nn.Module):
     """
 
     def __init__(
-        self, pretrained: bool = True, slice_feat_dim: int = 512, n_channels: int = 1
+        self, pretrained: bool = True, slice_feat_dim: int = 512, n_channels: int = 1, densenet = True
     ):
         super().__init__()
-        # Load pretrained CNN backbone (ResNet18) and adapt for single channel if needed
-        self.cnn = (
-            models.resnet18(weights=ResNet18_Weights.DEFAULT)
-            if pretrained
-            else models.resnet18()
-        )
-        
-        # Adjust first conv layer if input channel != 3
-        if self.cnn.conv1.in_channels != n_channels:
-            old_weights = self.cnn.conv1.weight.data.clone()  # shape (64, 3, 7, 7)
-            self.cnn.conv1 = nn.Conv2d(
-                n_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
-            )
-            if n_channels == 1:
-                # Initialize conv1 weights by averaging pretrained weights across RGB channels
-                new_weights = old_weights.mean(dim=1, keepdim=True)  # shape (64, 1, 7, 7)
-                self.cnn.conv1.weight.data = new_weights
-            else:
-                # For n_channels != 3 or 1, use Xavier initialization
-                init.xavier_uniform_(self.cnn.conv1.weight)
-            
-        # Remove final fc layer and avgpool - since we handle pooling later
-        self.cnn = nn.Sequential(
-            *list(self.cnn.children())[:-2]
-        )  # output shape: (B, 512, H', W') since last conv layer of ResNet has 512 feature maps
 
-        self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.densenet = densenet
         self.slice_feat_dim = slice_feat_dim  # 512 for ResNet18 last conv
         
-        assert self.slice_feat_dim == 512, "ResNet18 will create featuremaps with 512 channels"
+        if self.densenet:   
+            # Load pretrained DenseNet121 backbone and adapt for single channel if needed
+            print("DenseNet121 backbone")
+            self.cnn = (
+                models.densenet121(weights=DenseNet121_Weights.DEFAULT)
+                if pretrained
+                else models.densenet121()
+            )
+
+            # Adjust first conv layer if input channel != 3
+            if self.cnn.features.conv0.in_channels != n_channels:
+                old_weights = self.cnn.features.conv0.weight.data.clone()  # shape (64, 3, 7, 7)
+                self.cnn.features.conv0 = nn.Conv2d(
+                    n_channels, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
+                )
+                if n_channels == 1:
+                    # Initialize conv1 weights by averaging pretrained weights across RGB channels
+                    new_weights = old_weights.mean(dim=1, keepdim=True)  # shape (64, 1, 7, 7)
+                    self.cnn.features.conv0.weight.data = new_weights
+                else:
+                    # For n_channels != 3 or 1, use Xavier initialization
+                    init.xavier_uniform_(self.cnn.conv1.weight)
+            
+            # Remove final fc layer
+            self.cnn = nn.Sequential(
+                *list(self.cnn.children())[:-1]
+            ) # output shape: (B, 1024, H', W') since last conv layer of DenseNet has 1024 feature maps
+
+            assert self.slice_feat_dim == 1024, "DenseNet121 will create featuremaps with 1024 channels"     
+
+        else:
+            # Load pretrained ResNet18 backbone and adapt for single channel if needed
+            print("ResNet18 backbone")
+            self.cnn = (
+                models.resnet18(weights=ResNet18_Weights.DEFAULT)
+                if pretrained
+                else models.resnet18()
+            )
+        
+            # Adjust first conv layer if input channel != 3
+            if self.cnn.conv1.in_channels != n_channels:
+                old_weights = self.cnn.conv1.weight.data.clone()  # shape (64, 3, 7, 7)
+                self.cnn.conv1 = nn.Conv2d(
+                    n_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
+                )
+                if n_channels == 1:
+                    # Initialize conv1 weights by averaging pretrained weights across RGB channels
+                    new_weights = old_weights.mean(dim=1, keepdim=True)  # shape (64, 1, 7, 7)
+                    self.cnn.conv1.weight.data = new_weights
+                else:
+                    # For n_channels != 3 or 1, use Xavier initialization
+                    init.xavier_uniform_(self.cnn.conv1.weight)
+                
+            # Remove final fc layer and avgpool - since we handle pooling later
+            self.cnn = nn.Sequential(
+                *list(self.cnn.children())[:-2]
+            )  # output shape: (B, 512, H', W') since last conv layer of ResNet has 512 feature maps
+
+            assert self.slice_feat_dim == 512, "ResNet18 will create featuremaps with 512 channels"
+
+        self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -107,11 +143,10 @@ class MultiSliceImageEncoder(nn.Module):
         B, N, C, H, W = x.shape
         x = x.view(B * N, C, H, W)  # treat slices as batch
         
-        features = self.cnn(x)  # (B*N, 512, H', W') since last conv layer of ResNet has 512 feature maps
-        features = self.global_avg_pool(features).view(
-            B, N, self.slice_feat_dim
-        )  # (B, N, 512)
-        return features  # per slice embeddings
+        features = self.cnn(x)  # For ResNet backbone (B*N, 512, H', W') since last conv layer has 512 feature maps
+        features = self.global_avg_pool(features)
+  
+        return features.view(B, N, self.slice_feat_dim)  # per slice embeddings Resnet18->(B, N, 512), DenseNet121->(B,N,1024)
 
 
 class SliceFeatureFusion(nn.Module):
@@ -257,12 +292,7 @@ class MultiTaskHead(nn.Module):
             nn.GELU(),
             nn.Dropout(0.3),
         )
-
-        #self.seq_head = self.make_task_head(input_dim, num_classes_dict["sequence"])
-        #self.plane_head = self.make_task_head(input_dim, num_classes_dict["plane"])
-        #self.body_head = self.make_task_head(input_dim, num_classes_dict["body"])
-        #self.contrast_head = self.make_task_head(input_dim, 1)
-
+        
         self.tasks_heads = nn.ModuleList()
         for k in num_classes_dict:
             self.tasks_heads.append(self.make_task_head(input_dim, num_classes_dict[k]))
@@ -300,12 +330,7 @@ class MultiTaskHead(nn.Module):
             list: head logits
         """
         shared_feat = self.shared_fc(x)
-        res = [head(x) for head in self.tasks_heads]
-        #seq_logits = self.seq_head(shared_feat)
-        #plane_logits = self.plane_head(shared_feat)
-        #body_logits = self.body_head(shared_feat)
-        #contrast_logits = self.contrast_head(shared_feat)
-        return res
+        return [head(x) for head in self.tasks_heads]
 
 
 class BiDirectionalCrossModalAttentionFusion(nn.Module):
