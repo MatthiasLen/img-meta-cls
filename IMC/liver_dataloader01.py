@@ -17,8 +17,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from augment import augment
 
-log = logging.getLogger("augment")
-
+log = logging.getLogger("dataloader")
 
 class LiverDataset(Dataset):
     def __init__(
@@ -49,7 +48,7 @@ class LiverDataset(Dataset):
             "label_Contrast": ["pre", "post", "na"],
             "label_Localizer": ["yes", "no", "na"],
         },
-        label_path: str = "/home/melanie.dohmen/iml-series-labelling/data/PVai_full/labels_20250603.csv",
+        label_path: str = "",
         augment_conf: str = "NONE2D",
     ):
         self.num_samples = num_samples
@@ -59,8 +58,6 @@ class LiverDataset(Dataset):
         self.metadata_dim = metadata_dim
         self.label_names = label_names
         self.augment_conf = augment_conf
-
-        labels_df = pd.read_csv(label_path)
 
         # gcs client
         self.gcs_client = storage.Client()
@@ -77,6 +74,8 @@ class LiverDataset(Dataset):
         # Buffer for images
         self.img_buffer = {}
 
+        # populate label and image file path lists
+        labels_df = pd.read_csv(label_path)
         labels_df = labels_df.set_index("Filepath")
 
         for index, row in labels_df.iterrows():
@@ -85,12 +84,12 @@ class LiverDataset(Dataset):
             # get label idx:
             self.labels.append(row.to_dict())
 
-        print("len(self.path_list) =", len(self.path_list))
+        print("Available images: ", len(self.path_list))
+        
 
     def __len__(self: Any) -> int:
         return self.num_samples
 
-    
     def get_n_labels(self):
         r = {}
         for x in self.label_names:
@@ -99,8 +98,7 @@ class LiverDataset(Dataset):
         return r
 
     def get_cache_size(self):
-        sz = len(self.img_buffer)
-        return sz
+        return len(self.img_buffer)
         
     def get_bucket_filelist(self, path_dicom_folder):
         bucket_name, folder_filename = path_dicom_folder[5:].split("/", 1)
@@ -157,7 +155,7 @@ class LiverDataset(Dataset):
         f = N // n_images
         off = min(f//4,2)*n_images
         
-        # sample distinct random slices
+        # sample distinct slices
         if n_images <= N:
             if sampling_type == "random":
                 slice_inds = random.sample(range(off,N-off), n_images)
@@ -166,7 +164,6 @@ class LiverDataset(Dataset):
         else:
             slice_inds = list(range(N)) + [None]*(n_images-N)
 
-        
         # --- load slices from buffer or from the GCP bucket ---
         slice_images = []
         for slice_idx in slice_inds:
@@ -175,7 +172,7 @@ class LiverDataset(Dataset):
                 slice_images.append(None)
                 continue
                 
-            # key for buffering
+            # generate key for buffering
             fid = f"{bucket_name}-{slice_filenames[slice_idx]}"
             
             if not (fid in self.img_buffer):
@@ -190,7 +187,12 @@ class LiverDataset(Dataset):
                 dcm_image = dcmread(file_obj, stop_before_pixels=stop_before_pixels)
 
                 # covert to numpy array and store in buffer
-                self.img_buffer[fid] = dcm_image.pixel_array.astype(np.float32)
+                img_arr = dcm_image.pixel_array.astype(np.float32)
+                
+                if not len(img_arr.shape) == 2:
+                    raise Exception(f"ERROR: {fid} has invalid image dimensions ({len(img_arr.shape)})")
+                    
+                self.img_buffer[fid] = img_arr
        
             slice_images.append(copy.deepcopy(self.img_buffer[fid]))
         
@@ -200,32 +202,22 @@ class LiverDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...]]:
         
         # --- IMAGES ---
+        dcm_images = self.open_dicom_slice_from_series(self.path_list[idx], sampling_type="equidistant", stop_before_pixels=False, n_images = self.n_slices)
         image_list = []
         
-        dcm_images = self.open_dicom_slice_from_series(self.path_list[idx], sampling_type="equidistant", stop_before_pixels=False, n_images = self.n_slices)
-
         for image in dcm_images:
             
             # we dont accept images with channel dimension
             if (image is None) or (len(image.shape)>2):
                  image = np.zeros((244, 244), dtype=np.float32)
-                
-            # in dicom series, channel dimension is first, so we need to transpose it
-            # TODO: When does this happen ? We want GV images only
-            #if len(image.shape) == 3:
-            #    log.warning(f"Multi-channel image detected (shape {image.shape})! File: {self.path_list[idx]}")
-            #    if  image.shape[0] == 1:
-            #        image = image[0]
-            #    else:
-            #        image = np.zeros(244,244)
-
-            # data augmentation
+            
+            # do augmentation
             image = augment(image, self.augment_conf)
 
-            #image_list.append(torch.Tensor(np.stack([image, image, image], axis=0)).to(torch.float32))
+            # conver to float32 torch tensor of shape (1, H, W)
             image_list.append(torch.Tensor(image).unsqueeze(0).to(torch.float32))
             
-        images = torch.stack(image_list, dim=0)  # (N_slices, C, H, W)
+        images = torch.stack(image_list, dim=0)  # (N_slices, 1, H, W)
 
         # --- METADATA ---
         metadata = torch.zeros(self.metadata_dim) # empty
@@ -233,19 +225,20 @@ class LiverDataset(Dataset):
         # --- TARGETS ---
         label_idx_dict: Dict[str, int] = {}
 
-        for label_class, label_value in self.labels[idx].items():
-            if label_class in self.label_names:
-                if label_value in self.label_names[label_class]:
-                    label_idx_dict[label_class] = self.label_names[label_class].index(label_value)
-                else:
-                    label_idx_dict[label_class] = -1
-                    log.warning(f"Label value {label_value} not in label names of label class {label_class}, found {self.label_names[label_class]} only")
+        for label_class in self.label_names:
+            if not label_class in self.labels[idx]:
+                raise Exception(f"Missing Label! {label_class}")
+                
+            label_value = self.labels[idx][label_class]
+
+            if label_value in self.label_names[label_class]:
+                label_idx_dict[label_class] = self.label_names[label_class].index(label_value)
             else:
-                # label_idx_dict[label_class] = -1
-                log.debug(f"Label class {label_class} not in label names, found {self.label_names.keys()} only.")
+                label_idx_dict[label_class] = -1
+                print(f"WARNING: Label value {label_value} not in label names of label class {label_class}, found {self.label_names[label_class]} only")
 
         targets = tuple(torch.tensor(label_idx_dict.get(label_class, -1)) for label_class in self.label_names.keys())
-
+           
         return images, metadata, targets
 
 

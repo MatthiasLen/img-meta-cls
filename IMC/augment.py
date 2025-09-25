@@ -355,7 +355,7 @@ def augment(image: np.ndarray, augment_conf: str = "DEFAULT2D") -> np.ndarray:
         - "none": no normalization
     """
 
-    print(f"== augmenting image with config {augment_conf} ==")
+    log.debug(f"== augmenting image with config {augment_conf} ==")
 
     augment_dict = VALID_CONFIGURATIONS[augment_conf] if augment_conf in VALID_CONFIGURATIONS else NONE2D
 
