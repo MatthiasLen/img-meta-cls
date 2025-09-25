@@ -7,6 +7,63 @@ from skimage.filters import gaussian
 log = logging.getLogger("augment")
 
 
+
+# predefined augmentation configurations:
+
+DEFAULT2D = {
+    "patch_size": 224,
+    "crop": "random_center",
+    "flip": True,
+    "rot90": True,
+    "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.4},
+    "noise": {"max_std": 0.1, "rate": 0.4, "fixed": False},
+    "gamma": {"min_log_gamma": -0.2231, "max_log_gamma": 0.1823, "rate": 0.4},
+    "blur": {"max_sigma": 2.0, "rate": 0.4, "fixed": False},
+    "project": "none",
+    "normalize": "none",
+}
+
+ZSCOREDEFAULT2D = {
+    "patch_size": 224,
+    "crop": "random_center",
+    "flip": True,
+    "rot90": True,
+    "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.4},
+    "noise": {"max_std": 0.1, "rate": 0.4, "fixed": False},
+    "gamma": {"min_log_gamma": -0.2231, "max_log_gamma": 0.1823, "rate": 0.4},
+    "blur": {"max_sigma": 2.0, "rate": 0.4, "fixed": False},
+    "project": "none",
+    "normalize": "zscore",
+}
+
+
+NONE2D = {
+    "patch_size": 224,
+    "crop": "center",
+    "flip": False,
+    "rot90": False,
+    "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.0},
+    "noise": {"max_std": 0.1, "rate": 0.0, "fixed": False},
+    "gamma": {"min_log_gamma": 0.0, "max_log_gamma": 0.0, "rate": 0.0},
+    "blur": {"max_sigma": 2.0, "rate": 0.0, "fixed": False},
+    "project": "none",
+    "normalize": "none",
+}
+
+ZSCORENONE2D = {
+    "patch_size": 224,
+    "crop": "center",
+    "flip": False,
+    "rot90": False,
+    "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.0},
+    "noise": {"max_std": 0.1, "rate": 0.0, "fixed": False},
+    "gamma": {"min_log_gamma": 0.0, "max_log_gamma": 0.0, "rate": 0.0},
+    "blur": {"max_sigma": 2.0, "rate": 0.0, "fixed": False},
+    "project": "none",
+    "normalize": "zscore",
+}
+
+
 def crop(image: np.ndarray, patch_size: int, crop: str, dims: int = 2) -> np.ndarray:
     """Crop a patch of size patch_size x patch_size (x patch_size) from the
     image. If the image is smaller than patch_size in any dimension, it is
