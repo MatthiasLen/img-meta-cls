@@ -166,6 +166,7 @@ class LiverDataset(Dataset):
 
         # --- load slices from buffer or from the GCP bucket ---
         slice_images = []
+        
         for slice_idx in slice_inds:
             # skip non-values. will be converted to black slices later
             if slice_idx is None:
