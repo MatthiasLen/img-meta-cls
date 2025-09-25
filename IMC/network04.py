@@ -286,7 +286,7 @@ class MultiTaskHead(nn.Module):
 
     def __init__(self, input_dim: int, num_classes_dict: dict):
         super().__init__()
-
+        
         self.shared_fc = nn.Sequential(
             nn.Linear(input_dim, input_dim),  # keep dimension for flexibility
             nn.GELU(),
@@ -330,7 +330,7 @@ class MultiTaskHead(nn.Module):
             list: head logits
         """
         shared_feat = self.shared_fc(x)
-        return [head(x) for head in self.tasks_heads]
+        return [head(shared_feat) for head in self.tasks_heads]
 
 
 class BiDirectionalCrossModalAttentionFusion(nn.Module):
