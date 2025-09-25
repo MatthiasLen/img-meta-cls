@@ -349,7 +349,7 @@ def train_loop(
             epochs_no_improve += 1
             print(f"No improvement for {epochs_no_improve} epochs.")
 
-        if epochs_no_improve >= patience:
+        if (epochs_no_improve >= patience) and (epoch >= 0.7 * num_epochs):
             print("Early stopping triggered.")
             break
 

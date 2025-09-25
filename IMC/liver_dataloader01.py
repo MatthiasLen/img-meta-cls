@@ -1552,7 +1552,7 @@ class LiverDataset(Dataset):
         images = torch.stack(image_list, dim=0)  # (N_slices, C, H, W)
 
         # --- METADATA ---
-        metadata = torch.randn(self.metadata_dim)
+        metadata = torch.zeros(self.metadata_dim) # empty
 
         # --- TARGETS ---
         label_idx_dict: Dict[str, int] = {}
