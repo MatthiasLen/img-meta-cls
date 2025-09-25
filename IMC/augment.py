@@ -6,8 +6,6 @@ from skimage.filters import gaussian
 
 log = logging.getLogger("augment")
 
-
-
 # predefined augmentation configurations:
 
 DEFAULT2D = {
@@ -61,6 +59,13 @@ ZSCORENONE2D = {
     "blur": {"max_sigma": 2.0, "rate": 0.0, "fixed": False},
     "project": "none",
     "normalize": "zscore",
+}
+
+VALID_CONFIGURATIONS = {
+    "DEFAULT2D": DEFAULT2D,
+    "ZSCOREDEFAULT2D": ZSCOREDEFAULT2D,
+    "NONE2D": NONE2D,
+    "ZSCORENONE2D": ZSCORENONE2D
 }
 
 
@@ -350,9 +355,9 @@ def augment(image: np.ndarray, augment_conf: str = "DEFAULT2D") -> np.ndarray:
         - "none": no normalization
     """
 
-    log.debug(f"== augmenting image with config {augment_conf} ==")
+    print(f"== augmenting image with config {augment_conf} ==")
 
-    augment_dict = globals().get(augment_conf)
+    augment_dict = VALID_CONFIGURATIONS[augment_conf] if augment_conf in VALID_CONFIGURATIONS else NONE2D
 
     dims = 2
     if augment_dict["project"] != "none":
