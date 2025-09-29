@@ -82,12 +82,10 @@ class MultiTaskLoss(nn.Module):
     def forward(self, preds: tuple, targets: tuple) -> tuple[float, list]:
         losses = []
         total_loss = 0.
-        
-        print(preds)
-        
+          
         for i in range(len(preds)):
             if preds[i].shape[1] == 1:  # Binary
-                l = self.bce_loss(preds[i].squeeze(1), targets[i].float())
+                l = self.bce_loss(preds[i].squeeze(1), targets[i])
             else:
                 l = self.ce_loss(preds[i], targets[i])
             total_loss += l
