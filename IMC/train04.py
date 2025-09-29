@@ -79,16 +79,20 @@ class MultiTaskLoss(nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         self.bce_loss = nn.BCEWithLogitsLoss()
 
-    def forward(self, preds: tuple, targets: tuple) -> list:
+    def forward(self, preds: tuple, targets: tuple) -> tuple[float, list]:
         losses = []
         total_loss = 0.
         
+        print(preds)
+        
         for i in range(len(preds)):
-            l = 0.
-            l = self.ce_loss(preds[i], targets[i])
-            total_loss = total_loss + l
+            if preds[i].shape[1] == 1:  # Binary
+                l = self.bce_loss(preds[i].squeeze(1), targets[i].float())
+            else:
+                l = self.ce_loss(preds[i], targets[i])
+            total_loss += l
             losses.append(l.item())
-     
+    
         return total_loss, losses
 
 
@@ -201,14 +205,12 @@ def train_loop(
     # Initialize weights once before training, do NOT overwrite pretrained weights inside backbone
     model.apply(init_weights)
 
-    # optimizer
-    optimizer = create_optimizer(model)
-
     # lr scheduler
     steps_per_epoch = len(train_loader)
     total_steps = num_epochs * steps_per_epoch
     warmup_steps = int(0.1 * total_steps)  # warmup for 10% of total steps
-
+    
+    # optimizer
     optimizer = create_optimizer(model, lr=1.0e-6)  
     scheduler = get_scheduler(optimizer, warmup_steps, total_steps)
 
