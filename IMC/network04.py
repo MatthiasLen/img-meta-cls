@@ -51,103 +51,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import models
-from torchvision.models.resnet import ResNet18_Weights
-from torchvision.models.densenet import DenseNet121_Weights
-import torch.nn.init as init
-
-
-class MultiSliceImageEncoder(nn.Module):
-    """
-    Encodes multiple MRI slices using a shared CNN backbone (ResNet18).
-    Each slice is processed independently, and the output is a sequence of slice embeddings.
-    """
-
-    def __init__(
-        self, pretrained: bool = True, slice_feat_dim: int = 512, n_channels: int = 1, densenet = True
-    ):
-        super().__init__()
-
-        self.densenet = densenet
-        self.slice_feat_dim = slice_feat_dim  # 512 for ResNet18 last conv
-        
-        if self.densenet:   
-            # Load pretrained DenseNet121 backbone and adapt for single channel if needed
-            print("DenseNet121 backbone")
-            self.cnn = (
-                models.densenet121(weights=DenseNet121_Weights.DEFAULT)
-                if pretrained
-                else models.densenet121()
-            )
-
-            # Adjust first conv layer if input channel != 3
-            if self.cnn.features.conv0.in_channels != n_channels:
-                old_weights = self.cnn.features.conv0.weight.data.clone()  # shape (64, 3, 7, 7)
-                self.cnn.features.conv0 = nn.Conv2d(
-                    n_channels, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
-                )
-                if n_channels == 1:
-                    # Initialize conv1 weights by averaging pretrained weights across RGB channels
-                    new_weights = old_weights.mean(dim=1, keepdim=True)  # shape (64, 1, 7, 7)
-                    self.cnn.features.conv0.weight.data = new_weights
-                else:
-                    # For n_channels != 3 or 1, use Xavier initialization
-                    init.xavier_uniform_(self.cnn.conv1.weight)
-            
-            # Remove final fc layer
-            self.cnn = nn.Sequential(
-                *list(self.cnn.children())[:-1]
-            ) # output shape: (B, 1024, H', W') since last conv layer of DenseNet has 1024 feature maps
-
-            assert self.slice_feat_dim == 1024, "DenseNet121 will create featuremaps with 1024 channels"     
-
-        else:
-            # Load pretrained ResNet18 backbone and adapt for single channel if needed
-            print("ResNet18 backbone")
-            self.cnn = (
-                models.resnet18(weights=ResNet18_Weights.DEFAULT)
-                if pretrained
-                else models.resnet18()
-            )
-        
-            # Adjust first conv layer if input channel != 3
-            if self.cnn.conv1.in_channels != n_channels:
-                old_weights = self.cnn.conv1.weight.data.clone()  # shape (64, 3, 7, 7)
-                self.cnn.conv1 = nn.Conv2d(
-                    n_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
-                )
-                if n_channels == 1:
-                    # Initialize conv1 weights by averaging pretrained weights across RGB channels
-                    new_weights = old_weights.mean(dim=1, keepdim=True)  # shape (64, 1, 7, 7)
-                    self.cnn.conv1.weight.data = new_weights
-                else:
-                    # For n_channels != 3 or 1, use Xavier initialization
-                    init.xavier_uniform_(self.cnn.conv1.weight)
-                
-            # Remove final fc layer and avgpool - since we handle pooling later
-            self.cnn = nn.Sequential(
-                *list(self.cnn.children())[:-2]
-            )  # output shape: (B, 512, H', W') since last conv layer of ResNet has 512 feature maps
-
-            assert self.slice_feat_dim == 512, "ResNet18 will create featuremaps with 512 channels"
-
-        self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x (torch.Tensor): Input tensor of shape (B, N_slices, C, H, W)
-        Returns:
-            torch.Tensor: Slice embeddings of shape (B, N_slices, slice_feat_dim)
-        """
-        B, N, C, H, W = x.shape
-        x = x.view(B * N, C, H, W)  # treat slices as batch
-        
-        features = self.cnn(x)  # For ResNet backbone (B*N, 512, H', W') since last conv layer has 512 feature maps
-        features = self.global_avg_pool(features)
-  
-        return features.view(B, N, self.slice_feat_dim)  # per slice embeddings Resnet18->(B, N, 512), DenseNet121->(B,N,1024)
-
+from nn.image_encoder import MultiSliceImageEncoder
+from nn.metadata_encoder import MetadataEncoder
+from nn.multi_task_head import MultiTaskHead
 
 class SliceFeatureFusion(nn.Module):
     """
@@ -224,113 +130,6 @@ class SliceFeatureFusion(nn.Module):
         # Final MLP projection to fused_dim
         fused = self.out_proj(pooled)  # (B, fused_dim)
         return fused
-
-
-
-class MetadataEncoder(nn.Module):
-    """
-    Encodes DICOM metadata vectors into a compact, dense embedding suitable for fusion with image features.
-
-    This module applies a two-layer fully connected neural network with ReLU activations to transform
-    high-dimensional metadata inputs into a lower-dimensional embedding space.
-
-    Args:
-        input_dim (int): Dimensionality of the input metadata vector.
-        embed_dim (int, optional): Desired dimensionality of the output embedding. Default is 128.
-
-    Inputs:
-        x (torch.Tensor): A tensor of shape (B, input_dim) representing the batch of metadata vectors.
-
-    Outputs:
-        torch.Tensor: A tensor of shape (B, embed_dim) representing the encoded metadata embeddings.
-    """
-    
-    def __init__(self, input_dim : int , embed_dim : int = 128):
-        super().__init__()
-        
-        hidden_dim = max(128, input_dim // 2)
-        self.input_proj = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.2)
-        )
-        
-        self.resblock = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-        )
-        
-        self.output_proj = nn.Sequential(
-            nn.Linear(hidden_dim, embed_dim),
-            nn.LayerNorm(embed_dim),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-        )
-        
-    def forward(self, x : torch.Tensor) -> torch.Tensor:
-        x = self.input_proj(x)
-        x = x + self.resblock(x)
-        x = self.output_proj(x)
-        return x
-
-
-
-class MultiTaskHead(nn.Module):
-    """
-    Multi-task output heads for sequence, plane, body region, and contrast classification.
-    Shared feature extractor followed by separate heads for each task.
-    """
-
-    def __init__(self, input_dim: int, num_classes_dict: dict):
-        super().__init__()
-        
-        self.shared_fc = nn.Sequential(
-            nn.Linear(input_dim, input_dim),  # keep dimension for flexibility
-            nn.GELU(),
-            nn.Dropout(0.3),
-        )
-        
-        self.tasks_heads = nn.ModuleList()
-        for k in num_classes_dict:
-            self.tasks_heads.append(self.make_task_head(input_dim, num_classes_dict[k]))
-
-        print("Task head configuration", self.tasks_heads)
-
-    def make_task_head(self, in_dim: int, out_dim: int) -> nn.Sequential:
-        """
-        Creates a task-specific head (MLP) for classification.
-        Args:
-            in_dim (int): Input dimension
-            out_dim (int): Output dimension (number of classes)
-        Returns:
-            nn.Sequential: Task head module
-        """
-        hidden_dim1 = max(64, in_dim // 2)
-        hidden_dim2 = max(32, in_dim // 4)
-        return nn.Sequential(
-            nn.Linear(in_dim, hidden_dim1),
-            nn.LayerNorm(hidden_dim1),
-            nn.GELU(),
-            nn.Dropout(0.3),
-            nn.Linear(hidden_dim1, hidden_dim2),
-            nn.LayerNorm(hidden_dim2),
-            nn.GELU(),
-            nn.Dropout(0.3),
-            nn.Linear(hidden_dim2, out_dim),
-        )
-
-    def forward(self, x: torch.Tensor) -> list:
-        """
-        Args:
-            x (torch.Tensor): Joint feature embedding (B, input_dim)
-        Returns:
-            list: head logits
-        """
-        shared_feat = self.shared_fc(x)
-        return [head(shared_feat) for head in self.tasks_heads]
 
 
 class BiDirectionalCrossModalAttentionFusion(nn.Module):
@@ -435,13 +234,14 @@ class MRISequenceClassifier(nn.Module):
         self,
         metadata_input_dim: int,
         num_classes_dict: dict,
-        slice_feat_dim: int = 512,
         fused_feat_dim: int = 256,
         metadata_embed_dim: int = 128,
         output_emb_dim: int = 128,
     ):
         super().__init__()
-        self.image_encoder = MultiSliceImageEncoder(slice_feat_dim=slice_feat_dim)
+        self.image_encoder = MultiSliceImageEncoder()
+        
+        slice_feat_dim = self.image_encoder.get_feature_dimension()
 
         self.slice_fusion = SliceFeatureFusion(
             slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim
@@ -474,6 +274,7 @@ class MRISequenceClassifier(nn.Module):
         
         # Encode metadata
         metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim)
+        
         # Fuse features from image embedding and meta data embedding
         joint_feat = self.embedding_fusion(fused_img_feat, metadata_feat)
 

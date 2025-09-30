@@ -1,0 +1,100 @@
+import torch
+import torch.nn as nn
+from torchvision import models
+from torchvision.models.resnet import ResNet18_Weights
+from torchvision.models.densenet import DenseNet121_Weights
+import torch.nn.init as init
+
+
+class MultiSliceImageEncoder(nn.Module):
+    """
+    Encodes multiple MRI slices using a shared CNN backbone (ResNet18).
+    Each slice is processed independently, and the output is a sequence of slice embeddings.
+    """
+
+    def __init__(self, pretrained: bool = True, n_channels: int = 1, densenet = True):
+        super().__init__()
+
+        self.densenet = densenet
+        
+        if self.densenet:   
+            # Load pretrained DenseNet121 backbone and adapt for single channel if needed
+            print("DenseNet121 backbone")
+            self.cnn = (
+                models.densenet121(weights=DenseNet121_Weights.DEFAULT)
+                if pretrained
+                else models.densenet121()
+            )
+
+            # Adjust first conv layer if input channel != 3
+            if self.cnn.features.conv0.in_channels != n_channels:
+                old_weights = self.cnn.features.conv0.weight.data.clone()  # shape (64, 3, 7, 7)
+                self.cnn.features.conv0 = nn.Conv2d(
+                    n_channels, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
+                )
+                if n_channels == 1:
+                    # Initialize conv1 weights by averaging pretrained weights across RGB channels
+                    new_weights = old_weights.mean(dim=1, keepdim=True)  # shape (64, 1, 7, 7)
+                    self.cnn.features.conv0.weight.data = new_weights
+                else:
+                    # For n_channels != 3 or 1, use Xavier initialization
+                    init.xavier_uniform_(self.cnn.conv1.weight)
+
+            # Remove final fc layer
+            # output shape: (B, 1024, H', W') since last conv layer of DenseNet has 1024 feature maps
+            self.cnn = nn.Sequential(*list(self.cnn.children())[:-1])
+
+            # DenseNet121 will create featuremaps with 1024 channels
+            self.slice_feat_dim = 1024
+
+        else:
+            # Load pretrained ResNet18 backbone and adapt for single channel if needed
+            print("ResNet18 backbone")
+            self.cnn = (
+                models.resnet18(weights=ResNet18_Weights.DEFAULT)
+                if pretrained
+                else models.resnet18()
+            )
+
+            # Adjust first conv layer if input channel != 3
+            if self.cnn.conv1.in_channels != n_channels:
+                old_weights = self.cnn.conv1.weight.data.clone()  # shape (64, 3, 7, 7)
+                self.cnn.conv1 = nn.Conv2d(
+                    n_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
+                )
+                if n_channels == 1:
+                    # Initialize conv1 weights by averaging pretrained weights across RGB channels
+                    new_weights = old_weights.mean(dim=1, keepdim=True)  # shape (64, 1, 7, 7)
+                    self.cnn.conv1.weight.data = new_weights
+                else:
+                    # For n_channels != 3 or 1, use Xavier initialization
+                    init.xavier_uniform_(self.cnn.conv1.weight)
+
+            # Remove final fc layer and avgpool - since we handle pooling later
+            # output shape: (B, 512, H', W') since last conv layer of ResNet has 512 feature maps
+            self.cnn = nn.Sequential(
+                *list(self.cnn.children())[:-2]
+            )  
+
+            # ResNet18 will create feature maps with 512 channels
+            self.slice_feat_dim = 512
+
+        self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        
+    def get_feature_dimension(self) -> int:
+        return self.slice_feat_dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x (torch.Tensor): Input tensor of shape (B, N_slices, C, H, W)
+        Returns:
+            torch.Tensor: Slice embeddings of shape (B, N_slices, slice_feat_dim)
+        """
+        B, N, C, H, W = x.shape
+        x = x.view(B * N, C, H, W)  # treat slices as batch
+        
+        features = self.cnn(x)  # For ResNet18 (B*N, 512, H', W'), for DenseNet121 (B*N, 1024, H', W')
+        features = self.global_avg_pool(features)
+  
+        return features.view(B, N, self.slice_feat_dim)  # per slice embeddings, for Resnet18 (B, N, 512), for DenseNet121->(B,N,1024)
