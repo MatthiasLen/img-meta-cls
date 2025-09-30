@@ -232,10 +232,10 @@ class MRISequenceClassifier(nn.Module):
 
     def __init__(
         self,
-        metadata_input_dim: int,
         num_classes_dict: dict,
-        fused_feat_dim: int = 256,
+        metadata_input_dim: int,
         metadata_embed_dim: int = 128,
+        fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
     ):
         super().__init__()
