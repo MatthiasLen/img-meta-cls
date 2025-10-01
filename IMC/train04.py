@@ -367,13 +367,13 @@ if __name__ == "__main__":
     print(f"=== TRAINING ON DEVICE: {device} ===")
 
     # liver dataset
-    dummy_dataset = LiverDataset(num_samples=1024, n_slices=5, metadata_dim=256, label_path="~/pvai_labels_20250603.csv")
+    dummy_dataset = LiverDataset(num_samples=1024, n_slices=5, label_path="~/pvai_labels_20250603.csv")
     dummy_loader = DataLoader(dummy_dataset, batch_size=16, shuffle=True)
 
     cl_d = dummy_dataset.get_n_labels()
     print("Label config", cl_d)
 
-    model = MRISequenceClassifier(metadata_input_dim=256, num_classes_dict=cl_d, slice_feat_dim=1024)
+    model = MRISequenceClassifier(metadata_input_dim=89, num_classes_dict=cl_d, slice_feat_dim=1024)
 
     train_loop(
         model=model,

@@ -27,7 +27,6 @@ class LiverDataset(Dataset):
         n_slices: int = 3,
         img_channels: int = 1,
         img_size: int = 224,
-        metadata_dim: int = 512,
         label_names: Dict[str, List[str]] = {
             "label_SequenceType": [
                 "T1",
@@ -56,7 +55,6 @@ class LiverDataset(Dataset):
         self.n_slices = n_slices
         self.img_channels = img_channels
         self.img_size = img_size
-        self.metadata_dim = metadata_dim
         self.label_names = label_names
         self.augment_conf = augment_conf
 
@@ -222,26 +220,22 @@ class LiverDataset(Dataset):
         images = torch.stack(image_list, dim=0)  # (N_slices, 1, H, W)
 
         # --- METADATA ---
-        metadata = torch.zeros(self.metadata_dim) # empty
         
-        # creast single row dataframe
+        # creast single row dataframe containing all labels / meta related to indexed sample
         dicom_tags_df = pd.DataFrame([self.labels[idx]])
-
-        print(dicom_tags_df)
 
         # encode metadata:
         enc_meta_data_df = encode_dicom_tags_by_version(
             dicom_tags_df=dicom_tags_df,
             dicom_encoding_version="brain",
         )
-        
-        print(enc_meta_data_df)
-        
-        # convert into torch Tensor:
-        if len(enc_meta_data_df) > 0:
-            metadata = torch.tensor(enc_meta_data_df.iloc[0].to_numpy(), dtype=torch.float32)
 
-        print(metadata)
+        if len(enc_meta_data_df) == 0:
+            raise Exception("ERROR: metadata encoding failed")
+        
+        # convert into torch Tensor
+        metadata = torch.tensor(enc_meta_data_df.iloc[0].to_numpy(), dtype=torch.float32)
+        
 
         # --- TARGETS ---
         label_idx_dict: Dict[str, int] = {}

@@ -664,11 +664,6 @@ def encode_dicom_tags_by_version(dicom_tags_df: pd.DataFrame, dicom_encoding_ver
     if dicom_encoding_version == "brain":
         categorical_tags = common_categorical_tags
         numerical_tags = common_numerical_tags
-
-    ###
-    # add further encoding versions here
-    ###
-
     else:
         raise ValueError(f"Unknown dicom_encoding_version: {dicom_encoding_version}")
 
