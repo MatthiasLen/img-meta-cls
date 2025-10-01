@@ -224,13 +224,19 @@ class LiverDataset(Dataset):
         # --- METADATA ---
         metadata = torch.zeros(self.metadata_dim) # empty
         
+        # creast single row dataframe
         dicom_tags_df = pd.DataFrame([self.labels[idx]])
+
+        print(dicom_tags_df)
 
         # encode metadata:
         enc_meta_data_df = encode_dicom_tags_by_version(
             dicom_tags_df=dicom_tags_df,
             dicom_encoding_version="brain",
         )
+        
+        print(enc_meta_data_df)
+        
         # convert into torch Tensor:
         if len(enc_meta_data_df) > 0:
             metadata = torch.tensor(enc_meta_data_df.iloc[0].to_numpy(), dtype=torch.float32)
