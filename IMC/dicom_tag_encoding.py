@@ -3,7 +3,9 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+import logging
 
+log = logging.getLogger("dataloader")
 
 def find_word(string_list: Any, list_word_to_find: List[str], flag=False):  # type: ignore[no-untyped-def]
     """Checks if an exact word is present in any of the strings in the given
@@ -29,7 +31,6 @@ def find_word(string_list: Any, list_word_to_find: List[str], flag=False):  # ty
                 break
 
     return flag
-
 
 def encode_angio_flag(df: pd.DataFrame) -> pd.DataFrame:
     """Encodes the 'AngioFlag' column of the provided DataFrame.
@@ -606,130 +607,6 @@ def encode_pixel_spacing(dicom_tags_df: pd.DataFrame) -> pd.DataFrame:
     return dicom_tags_df.drop(columns=["PixelSpacing"])
 
 
-def encode_labels(labels_df: pd.DataFrame, label_names: Dict[str, List[str]]) -> pd.DataFrame:
-    """Encodes the labels in the provided DataFrame.
-
-    Args:
-        labels_df (pd.DataFrame): DataFrame containing labels.
-        label_names (Dict[str, List[str]]): Dictionary with label columns to encode.
-    Returns:
-        pd.DataFrame: DataFrame with each value in label_names encoded as binary feature.
-    """
-    encoding_cols = []
-
-    # insert missing columns from label_names with "na" values
-    for class_name in label_names.keys():
-        if class_name not in labels_df.columns:
-            labels_df.insert(column=class_name, value="na", loc=len(labels_df.columns))
-
-    # reorder columns to consistent order as in label_names, drop anything else
-    labels_df = labels_df.loc[:, [col for col in label_names.keys()]]
-
-    for class_name, values in label_names.items():
-        # add encoding column
-        labels_df.insert(loc=len(labels_df.columns), column=f"enc_{class_name}", value=np.nan)
-        encoding_cols.append(f"enc_{class_name}")
-
-        for val_idx, val in enumerate(values):
-            if val != "na":
-                # Create a new column encoding for each label value
-                labels_df.loc[labels_df[class_name] == val, f"enc_{class_name}"] = val_idx
-            else:
-                # This shouldn't happen in labels should it?
-                labels_df.loc[labels_df[class_name] == "na", f"enc_{class_name}"] = np.nan
-
-    return labels_df.drop(columns=[col for col in labels_df.columns if col not in encoding_cols])
-
-
-def check_alignment(
-    df1: pd.DataFrame, df2: pd.DataFrame, name1: str, name2: str, column: str = None
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Check if two DataFrames are aligned by a specific column.
-
-    Parameters
-    ----------
-    df1 : pd.DataFrame
-        First DataFrame to check.
-    df2 : pd.DataFrame
-        Second DataFrame to check.
-    column : str
-        Column name to check alignment on.
-
-    Returns
-    -------
-    (pd.DataFrame, pd.DataFrame)
-        Aligned DataFrames.
-    """
-    # check if both DataFrames have the column:
-    if column is not None:
-        if column not in df1.columns:
-            raise ValueError(f"Column '{column}' not found in {name1}. ")
-        if column not in df2.columns:
-            raise ValueError(f"Column '{column}' not found in {name2}. ")
-
-    if len(df1) != len(df2):
-        log.warning(
-            f"df1 and df2 do not have the same number of rows. Got len({name1}): {len(df1)}, len({name2}): {len(df2)}."
-        )
-        len_df1 = len(df1)
-        df1.drop_duplicates(inplace=True)
-        if len_df1 != len(df1):
-            log.warning(f"Dropped {len_df1 - len(df1)} duplicate rows in {name1}.")
-        len_df2 = len(df2)
-        df2.drop_duplicates(inplace=True)
-        if len_df2 != len(df2):
-            log.warning(f"Dropped {len_df2 - len(df2)} duplicate rows in {name2}.")
-
-        if column is not None:
-            df1 = df1.loc[df1[column].isin(df2[column]), :]
-            df2 = df2.loc[df2[column].isin(df1[column]), :]
-            if len(df1) != len(df2):
-                log.warning(
-                    f"After aligning by {column}, lengths are still different. Got len({name1}): {len(df1)}, len({name2}): {len(df2)}."
-                )
-                raise ValueError(f"Could not match DataFrames {name1} and {name2} by column {column}. ")
-            else:
-                log.warning(f"df1 and df2 were aligned by column {column} and thereby reduced to length {len(df1)}.")
-
-                # sort by given column::
-                df1 = df1.set_index(column, drop=False).sort_index()
-                df2 = df2.set_index(column, drop=False).sort_index()
-
-                if not df1[column].equals(df2[column]):
-                    raise ValueError(f"{column} in {name1} and {name2} still do not match. ")
-                # restore column Filepath:
-                df2 = df2.reset_index(drop=True)
-                df1 = df1.reset_index(drop=True)
-        elif len(df1) != len(df2):
-            raise ValueError(
-                f"df1 and df2 do not have the same number of rows after dropping duplicates. Got len({name1}): {len(df1)}, len({name2}): {len(df2)}."
-            )
-    elif column is not None:
-        if not df1[column].equals(df2[column]):
-            log.info(f"{column} in {name1} and {name2} do not match. Resorting and checking again...")
-
-            # sort by given column::
-            df1 = df1.set_index(column, drop=False).sort_index()
-            df2 = df2.set_index(column, drop=False).sort_index()
-
-            if not df1[column].equals(df2[column]):
-                raise ValueError(f"{column} in {name1} and {name2} still do not match. ")
-            else:
-                log.info(f"df1 and df2 were aligned by column {column} by sorting.")
-
-            # restore column Filepath:
-            df2 = df2.reset_index(drop=True)
-            df1 = df1.reset_index(drop=True)
-
-    elif not df2.index.equals(df1.index):
-        log.info(f"Indices in {name1} and {name2} do not match. Ignoring indices and resetting them.")
-        # drop indices:
-        df1 = df1.reset_index(drop=True)
-        df2 = df2.reset_index(drop=True)
-
-    return df1, df2
-
-
 def encode_dicom_tags_by_version(dicom_tags_df: pd.DataFrame, dicom_encoding_version: str = "brain") -> pd.DataFrame:
     """Select and encode a predefined set of DICOM tags from the provided
     DataFrame.
@@ -818,7 +695,13 @@ def encode_dicom_tags_by_version(dicom_tags_df: pd.DataFrame, dicom_encoding_ver
             value=encoded_dicom_tags_df[tag].astype(str).str.startswith("n=").astype(int),
             loc=len(encoded_dicom_tags_df.columns),
         )
-    added_features.append(tag + "_multiple")
+        added_features.append(tag + "_multiple")
+
+    # drop all other columns:
+    all_columns = ["Filepath"] + categorical_tags + numerical_tags + added_features
+
+    tags_to_drop = [col for col in encoded_dicom_tags_df.columns if col not in all_columns]
+    encoded_dicom_tags_df = encoded_dicom_tags_df.drop(columns=tags_to_drop, errors="ignore")
 
     # encode categorical dicom tags into binary features according to version:
     if dicom_encoding_version == "brain":
@@ -834,13 +717,7 @@ def encode_dicom_tags_by_version(dicom_tags_df: pd.DataFrame, dicom_encoding_ver
     else:
         raise ValueError(f"Unknown dicom_encoding_version: {dicom_encoding_version}")
 
-    # drop all other columns:
-    all_columns = ["Filepath"] + categorical_tags + numerical_tags + added_features
-
-    tags_to_drop = [col for col in encoded_dicom_tags_df.columns if col not in all_columns]
-    encoded_dicom_tags_df = encoded_dicom_tags_df.drop(columns=tags_to_drop, errors="ignore")
-
-    encoded_dicom_tags_df = encoded_dicom_tags_df.reindex(columns=sorted(all_columns))
+    encoded_dicom_tags_df = encoded_dicom_tags_df.reindex(columns=sorted(encoded_dicom_tags_df.columns))
 
     # make sure all values are numeric now:
     for col in encoded_dicom_tags_df.columns:
@@ -849,98 +726,3 @@ def encode_dicom_tags_by_version(dicom_tags_df: pd.DataFrame, dicom_encoding_ver
             encoded_dicom_tags_df[col] = pd.to_numeric(encoded_dicom_tags_df[col], errors="coerce")
 
     return encoded_dicom_tags_df
-
-
-def encode_dicom_and_pixel_features(
-    dicom_tags_df: pd.DataFrame,
-    pixel_preds_df: pd.DataFrame,
-    label_names: Dict[str, List[str]],
-    dicom_encoding_version: str = "brain",
-) -> pd.DataFrame:
-    """Prepare the input DataFrame for the Random Forest Classifier by merging
-    and encoding a DataFrames with DICOM tags and DataFrame with pixel model
-    prediction scores.
-
-    This method assumes, that indices of dicom_tags_df and pixel_preds_df are aligned,
-    if both are not empty!
-
-    Parameters
-    ----------
-    dicom_tags_df : pd.DataFrame
-        DataFrame containing DICOM tags.
-        Example columns:
-        "Filepath", "AngioFlag", "Columns", "DiffusionBValue", ...
-    pixel_preds_df : pd.DataFrame
-        DataFrame containing pixel model prediction probabilities.
-        Example columns:
-        "Filepath", "pred_label_AcquisitionPlane_prob_AX", "pred_label_AcquisitionPlane_prob_COR", ...
-    dicom_encoding_version : str, optional
-        Version of selected tags to use, by default "brain".
-
-    Returns
-    -------
-    pd.DataFrame
-        Merged encodings ready to feed into Random Forest
-    """
-    encoded_dicom_tags_df = encode_dicom_tags_by_version(dicom_tags_df, dicom_encoding_version)
-
-    encoded_pixel_preds_df = pixel_preds_df.copy()
-    # if there is no pixel model prediction input, ignore it:
-    if not encoded_pixel_preds_df.empty:
-        for label_class, label_values in label_names.items():
-            for label_value in label_values:
-                # encode label values with indices:
-                encoded_pixel_preds_df.loc[
-                    encoded_pixel_preds_df[label_class.replace("label_", "pred_")] == label_value,
-                    label_class.replace("label_", "pred_"),
-                ] = label_values.index(label_value)
-
-                # check if all probabilities are there
-                prob_feature_name = label_class.replace("label_", "pred_") + "_prob_" + label_value
-                if prob_feature_name not in encoded_pixel_preds_df.columns:
-                    encoded_pixel_preds_df.insert(
-                        column=prob_feature_name, value=0.0, loc=len(encoded_pixel_preds_df.columns)
-                    )
-                    log.warning(
-                        f"Missing pixel model prediction probabilities for {label_class} value {label_value} added with 0.0 values."
-                    )
-
-            # normalize probabilities to 0...1 for each label_class
-            probs_this_class = [
-                label_class.replace("label_", "pred_") + "_prob_" + label_value for label_value in label_values
-            ]
-            encoded_pixel_preds_df.loc[:, probs_this_class].apply(
-                lambda x: (x - encoded_pixel_preds_df[probs_this_class].min(axis=1))
-                / (
-                    encoded_pixel_preds_df[probs_this_class].max(axis=1)
-                    - encoded_pixel_preds_df[probs_this_class].min(axis=1)
-                )
-            )
-
-        # remove any other columns that are not Filepath, prediction, or prediction probabilities:
-        remove_cols = []
-        for col in encoded_pixel_preds_df.columns:
-            if col != "Filepath" and not col.startswith("pred_"):
-                remove_cols.append(col)
-        if len(remove_cols) > 0:
-            encoded_pixel_preds_df.drop(columns=remove_cols, errors="ignore", inplace=True)
-
-        # sort columns:
-        encoded_pixel_preds_df.sort_index(axis=1, inplace=True)
-
-    # ensure encoded_dicom_tags_df and encoded_pixel_preds_df are aligned:
-    if len(encoded_dicom_tags_df) > 0 and len(encoded_pixel_preds_df) > 0:
-        encoded_dicom_tags_df, encoded_pixel_preds_df = check_alignment(
-            encoded_dicom_tags_df,
-            encoded_pixel_preds_df,
-            "encoded_dicom_tags_df",
-            "encoded_pixel_preds_df",
-            column="Filepath",
-        )
-
-    # merge columns and remove "Filepath"
-    input_df = pd.concat([encoded_dicom_tags_df, encoded_pixel_preds_df], axis=1, ignore_index=False).drop(
-        columns=["Filepath"]
-    )
-
-    return input_df

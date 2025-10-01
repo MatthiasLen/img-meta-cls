@@ -12,12 +12,13 @@ from google.cloud import storage  # type: ignore
 from natsort import natsorted
 from pydicom import FileDataset, dcmread
 from pydicom.filebase import DicomBytesIO
-from skimage.filters import gaussian
 from torch.utils.data import DataLoader, Dataset
 
 from augment import augment
+from dicom_tag_encoding import encode_dicom_tags_by_version
 
 log = logging.getLogger("dataloader")
+
 
 class LiverDataset(Dataset):
     def __init__(
@@ -222,6 +223,19 @@ class LiverDataset(Dataset):
 
         # --- METADATA ---
         metadata = torch.zeros(self.metadata_dim) # empty
+        
+        dicom_tags_df = pd.DataFrame([self.labels[idx]])
+
+        # encode metadata:
+        enc_meta_data_df = encode_dicom_tags_by_version(
+            dicom_tags_df=dicom_tags_df,
+            dicom_encoding_version="brain",
+        )
+        # convert into torch Tensor:
+        if len(enc_meta_data_df) > 0:
+            metadata = torch.tensor(enc_meta_data_df.iloc[0].to_numpy(), dtype=torch.float32)
+
+        print(metadata)
 
         # --- TARGETS ---
         label_idx_dict: Dict[str, int] = {}
