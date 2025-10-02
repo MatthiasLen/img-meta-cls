@@ -1,3 +1,8 @@
+"""
+Author:  Melanie Dohmen
+Version: 2025-09-29
+"""
+
 from ast import literal_eval
 from typing import Any, Dict, List, Tuple
 

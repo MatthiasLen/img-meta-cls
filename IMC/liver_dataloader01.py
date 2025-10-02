@@ -259,7 +259,7 @@ class LiverDataset(Dataset):
 
 # Usage example:
 if __name__ == "__main__":
-    dummy_dataset = LiverDataset(num_samples=200, n_slices=5, metadata_dim=3 * 256, label_path="~/pvai_labels_20250603.csv")
+    dummy_dataset = LiverDataset(num_samples=200, n_slices=5, label_path="~/pvai_labels_20250603.csv")
     dummy_loader = DataLoader(dummy_dataset, batch_size=8, shuffle=True)
 
     n_label = dummy_dataset.get_n_labels()
@@ -271,6 +271,7 @@ if __name__ == "__main__":
         print(f"  metadata.shape = {metadata.shape}")  # (B, metadata_dim)
         print(f"  targets shapes = {[t.shape for t in targets]}")
 
+        print(metadata)
         print(targets)
-        if batch_idx == 1:  # just show first 2 batches
+        if batch_idx == 4:  # just show first 2 batches
             break

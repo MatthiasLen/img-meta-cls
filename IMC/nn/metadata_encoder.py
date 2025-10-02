@@ -2,6 +2,37 @@ import torch
 import torch.nn as nn
 
 
+class ContextualImputer(nn.Module):
+    def __init__(self, num_features : int, hidden_dim  :int):
+        super().__init__()
+        self.num_features = num_features
+        
+        # MLP to predict imputations
+        self.imputer_net = nn.Sequential(
+            nn.Linear(num_features * 2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, num_features)
+        )
+        
+    def forward(self, x):
+        # x shape: (batch_size, num_features)
+        mask = ~torch.isnan(x)  # True where not NaN
+        
+        # Replace NaNs with zeros (or any constant)
+        x_filled = torch.where(mask, x, torch.zeros_like(x))
+        
+        # Concatenate input + mask as features
+        imputer_input = torch.cat([x_filled, mask.float()], dim=1)
+        
+        # Predict imputed values for all features
+        imputed_values = self.imputer_net(imputer_input)
+        
+        # For missing entries, replace with imputed values
+        x_imputed = torch.where(mask, x_filled, imputed_values)
+        
+        return x_imputed
+
 
 class MetadataEncoder(nn.Module):
     """
@@ -24,8 +55,10 @@ class MetadataEncoder(nn.Module):
     
     def __init__(self, input_dim : int , embed_dim : int = 128, dropout : float = 0.1):
         super().__init__()
+        
+        self.imputer = ContextualImputer(input_dim, hidden_dim=input_dim)
 
-        hidden_dim = (embed_dim + input_dim)//2
+        hidden_dim = (embed_dim + input_dim) // 2
 
         self.proj = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -40,6 +73,15 @@ class MetadataEncoder(nn.Module):
 
         self.residual = nn.Linear(input_dim, embed_dim)
 
-    def forward(self, x : torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Impute missing values contextually
+        x = self.imputer(x)
+
+        # Embed imputed vector
         x = self.residual(x) + self.proj(x)
         return x
+
+
+
+
+
