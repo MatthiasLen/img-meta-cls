@@ -360,8 +360,7 @@ def train_loop(
 if __name__ == "__main__":
     from torch.utils.data import DataLoader
     from network05 import UnifiedTransformerModel
-    from dummy_dataloader import DummyMRIDataset
-    from liver_dataloader01 import LiverDataset
+    from data.liver_dataloader01 import LiverDataset
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"=== TRAINING ON DEVICE: {device} ===")

@@ -14,8 +14,8 @@ from pydicom import FileDataset, dcmread
 from pydicom.filebase import DicomBytesIO
 from torch.utils.data import DataLoader, Dataset
 
-from augment import augment
-from dicom_tag_encoding import encode_dicom_tags_by_version
+from data.augment import augment
+from data.dicom_tag_encoding import encode_dicom_tags_by_version
 
 log = logging.getLogger("dataloader")
 

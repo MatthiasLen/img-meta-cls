@@ -5,7 +5,6 @@ from torchvision.models.resnet import ResNet18_Weights
 from torchvision.models.densenet import DenseNet121_Weights
 import torch.nn.init as init
 
-
 class MultiSliceImageEncoder(nn.Module):
     """
     Encodes multiple MRI slices using a shared CNN backbone (ResNet18).
