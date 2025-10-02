@@ -23,6 +23,7 @@ class MultiTaskHead(nn.Module):
         Args:
             in_dim (int): Input dimension
             out_dim (int): Output dimension (number of classes)
+            
         Returns:
             nn.Sequential: Task head module
         """
@@ -44,6 +45,7 @@ class MultiTaskHead(nn.Module):
         """
         Args:
             x (torch.Tensor): Joint feature embedding (B, input_dim)
+            
         Returns:
             list: head logits
         """

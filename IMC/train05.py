@@ -373,8 +373,6 @@ if __name__ == "__main__":
     cl_d = dummy_dataset.get_n_labels()
     print("Label config", cl_d)
 
-    #model = MRISequenceClassifier(metadata_input_dim=89, num_classes_dict=cl_d)
-
     model = UnifiedTransformerModel(
         metadata_input_dim=89,
         metadata_embed_dim=128,
