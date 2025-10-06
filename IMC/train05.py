@@ -358,8 +358,10 @@ if __name__ == "__main__":
         num_classes_dict=cl_d
     )
 
-    log_dir = "./logs" # Directory for TensorBoard logs
-
+    # Directory for TensorBoard logs
+    log_dir = "./logs" 
+    os.makedirs(log_dir, exist_ok=True)
+    
     with torch.profiler.profile(
         activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
         record_shapes=True,
@@ -376,3 +378,5 @@ if __name__ == "__main__":
             device=device,
             save_path="best_model.pth"
         )
+    
+    print(f"Profiler results saved to {log_dir}. Run: tensorboard --logdir {log_dir}")
