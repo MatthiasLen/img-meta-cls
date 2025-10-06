@@ -337,6 +337,7 @@ if __name__ == "__main__":
     from network05 import UnifiedTransformerModel
     from data.liver_dataloader01 import LiverDataset
     import torch.profiler
+    from torch.profiler import profile, tensorboard_trace_handler
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"=== TRAINING ON DEVICE: {device} ===")
@@ -357,13 +358,14 @@ if __name__ == "__main__":
         num_classes_dict=cl_d
     )
 
-
+    log_dir = "./logs" # Directory for TensorBoard logs
 
     with torch.profiler.profile(
         activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
         record_shapes=True,
         profile_memory=True,
-        with_stack=True
+        with_stack=True,
+        on_trace_ready=tensorboard_trace_handler(log_dir)
     ) as prof:
         # run training
         train_loop(

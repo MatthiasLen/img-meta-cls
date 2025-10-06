@@ -1,4 +1,6 @@
-class MultiTaskLoss(nn.Module):
+import torch
+import torch.nn as nn
+class MultiTaskLoss(torch.nn.Module):
     """
     Computes a combined multi-task loss for classification and binary tasks.
 
