@@ -1,6 +1,6 @@
 """
-    TRAINIGN SCRIPT FOR MODEL VERSION 0.4
-    2025/09/18
+    TRAINING SCRIPT FOR MODEL VERSION 0.5
+    2025/10/01
 
     Class to manage training with mixed precision and gradient scaling (via torch.amp.GradScaler),
     including saving and loading of checkpoints with scaler state. Early stopping and learning rate
@@ -17,16 +17,18 @@ from typing import Union
 import math
 import os
 from tqdm import tqdm
+import numpy as np
+import time
+
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
-import numpy as np
 
 from helper import plot_batch_per_sample, normalize_per_sample, count_parameters
-
+from nn.multi_task_loss import MultiTaskLoss
 
 def init_weights(module: nn.Module) -> None:
     """
@@ -50,48 +52,6 @@ def init_weights(module: nn.Module) -> None:
         nn.init.ones_(module.weight)
         nn.init.zeros_(module.bias)
 
-
-class MultiTaskLoss(nn.Module):
-    """
-    Computes a combined multi-task loss for classification and binary tasks.
-
-    This loss module calculates the sum of:
-    - CrossEntropyLoss with label smoothing for multiple classification heads.
-    - BCEWithLogitsLoss for binary classification head.
-
-    Args:
-        label_smoothing (float, optional): Label smoothing factor for CrossEntropyLoss. Defaults to 0.1.
-
-    Inputs:
-        preds (Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]):
-            Tuple containing logits for sequence, plane, body, and contrast predictions.
-        targets (Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]):
-            Tuple containing ground-truth labels for sequence, plane, body, and contrast.
-
-    Returns:
-        Tuple[torch.Tensor, Tuple[float, float, float, float]]:
-            - total_loss: combined scalar loss tensor.
-            - individual_losses: tuple with individual losses (sequence, plane, body, contrast) as floats.
-    """
-    
-    def __init__(self, label_smoothing: float = 0.1) -> None:
-        super().__init__()
-        self.ce_loss = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-        self.bce_loss = nn.BCEWithLogitsLoss()
-
-    def forward(self, preds: tuple, targets: tuple) -> tuple[float, list]:
-        losses = []
-        total_loss = 0.
-          
-        for i in range(len(preds)):
-            if preds[i].shape[1] == 1:  # Binary
-                l = self.bce_loss(preds[i].squeeze(1), targets[i])
-            else:
-                l = self.ce_loss(preds[i], targets[i])
-            total_loss += l
-            losses.append(l.item())
-    
-        return total_loss, losses
 
 
 def get_scheduler(
@@ -133,9 +93,9 @@ def create_optimizer(model: torch.nn.Module, lr: float = 1.0e-6, weight_decay: f
         model: Model to optimize.
         lr: Learning rate.
         weight_decay: Weight decay.
-
     Returns:
         AdamW optimizer.
+        
     """
     decay = []
     no_decay = []
@@ -151,17 +111,32 @@ def create_optimizer(model: torch.nn.Module, lr: float = 1.0e-6, weight_decay: f
     return AdamW([{"params": decay, "weight_decay": weight_decay},{"params": no_decay, "weight_decay": 0.0}],lr=lr)
 
 
-def classification_losses(outputs, targets):
+def classification_losses(outputs: list , targets: list) -> list:
+    """
+    Calculates and prints the accuracy for each classification task.
     
+    Args:
+        outputs (list of torch.Tensor): List of model outputs for each task, where each output is a tensor of class scores.
+        targets (list of torch.Tensor): List of ground truth labels for each task.
+    Raises:
+        AssertionError: If the number of outputs and targets do not match.
+    Returns:
+        list with task accuracies
+        
+    """    
     assert len(outputs) == len(targets)
-
+    accu_list = []
+    
     # iterate over tasks
-    for i in range(len(outputs)):
-        pred = outputs[i].clone().detach().cpu().numpy()
-        trag_cl = targets[i].clone().detach().cpu().numpy()
+    for i, (output, target) in enumerate(zip(outputs, targets)):
+        pred = output.clone().detach().cpu().numpy()
+        target_cl = target.clone().detach().cpu().numpy()
         pred_cl = np.argmax(pred, axis=1)
-        accuracy = np.mean(np.array(pred_cl) == np.array(trag_cl))
+        accuracy = np.mean(pred_cl == target_cl)
+        accu_list.append(accuracy)
         print(f"Task {i} Accuracy:", accuracy)
+       
+    return accu_list
 
 
 def train_loop(
@@ -240,9 +215,9 @@ def train_loop(
             
             # unpack batch
             images, metadata, targets = batch
-            images = images.to(device)
-            metadata = metadata.to(device)
-            targets = [t.to(device) for t in targets]
+            images = images.to(device, non_blocking=True) # TODO: profile
+            metadata = metadata.to(device, non_blocking=True)
+            targets = [t.to(device, non_blocking=True) for t in targets]
 
             optimizer.zero_grad()
             
@@ -334,7 +309,7 @@ def train_loop(
         print(f"Epoch {epoch+1} Validation Loss: {avg_val_loss:.4f} "
               f"(Individual losses: {avg_ind})")
 
-        # Early stopping & checkpointing
+        # --- Early stopping & checkpointing ---
         if avg_val_loss < best_val_loss:
             print(f"Validation loss improved from {best_val_loss:.4f} to {avg_val_loss:.4f}. Saving model.")
             best_val_loss = avg_val_loss
@@ -361,17 +336,18 @@ if __name__ == "__main__":
     from torch.utils.data import DataLoader
     from network05 import UnifiedTransformerModel
     from data.liver_dataloader01 import LiverDataset
-
+    import torch.profiler
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"=== TRAINING ON DEVICE: {device} ===")
 
     # liver dataset
     dummy_dataset = LiverDataset(num_samples=1024, n_slices=5, label_path="~/pvai_labels_20250603.csv")
     dummy_loader = DataLoader(dummy_dataset, batch_size=16, shuffle=True)
-
     cl_d = dummy_dataset.get_n_labels()
     print("Label config", cl_d)
-
+    
+    # initialize model
     model = UnifiedTransformerModel(
         metadata_input_dim=89,
         metadata_embed_dim=128,
@@ -381,11 +357,20 @@ if __name__ == "__main__":
         num_classes_dict=cl_d
     )
 
-    train_loop(
-        model=model,
-        train_loader=dummy_loader,
-        val_loader=dummy_loader,
-        num_epochs=50,
-        device=device,
-        save_path="best_model.pth"
-    )
+
+
+    with torch.profiler.profile(
+        activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=True
+    ) as prof:
+        # run training
+        train_loop(
+            model=model,
+            train_loader=dummy_loader,
+            val_loader=dummy_loader,
+            num_epochs=50,
+            device=device,
+            save_path="best_model.pth"
+        )
