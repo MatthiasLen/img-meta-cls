@@ -146,6 +146,7 @@ def train_loop(
     num_epochs: int,
     device: torch.device,
     save_path: Union[str, os.PathLike],
+    get_timings : bool = False
 ) -> None:
     """
     Trains a PyTorch model with mixed precision, multi-task loss, and learning rate scheduling.
@@ -166,6 +167,7 @@ def train_loop(
         num_epochs (int): Maximum number of training epochs.
         device (torch.device): Device to run training on (CPU or CUDA).
         save_path (Union[str, os.PathLike]): File path to save the best model checkpoint.
+        get_timings (bool): compute and print trimings. Defaults to False.
 
     Outputs and result handling:
         Saves the best model state dict to `save_path`.
@@ -206,7 +208,6 @@ def train_loop(
 
         # Track individual losses for logging
         train_losses = []
-
         batch_id = 0
         
         # --- Training loop for current epoch ---
@@ -221,17 +222,14 @@ def train_loop(
             images = images.to(device) # TODO: profile  non_blocking=True
             metadata = metadata.to(device)
             targets = [t.to(device) for t in targets]
-
             timings.append((time.time(),"images/meta/targets.to(device)")) # RECORD TIME
 
             optimizer.zero_grad()
-            
             timings.append((time.time(),"zero_grad")) # RECORD TIME
             
             with torch.amp.autocast("cuda"):     
                 # Normalize per sample 
                 images = normalize_per_sample(images)
-
                 timings.append((time.time(),"normalize_per_sample")) # RECORD TIME
                 
                 # Plot batch
@@ -242,12 +240,10 @@ def train_loop(
 
                 # Compute losses
                 loss, indiv_losses = criterion(outputs, targets)
-
                 timings.append((time.time(),"forward + criterion")) # RECORD TIME
 
             # Scales loss. Calls backward() on scaled loss to create scaled gradients
             scaler.scale(loss).backward()
-
             timings.append((time.time(),"scaler.scale(loss).backward()")) # RECORD TIME
             
             # Unscales the gradients of optimizer's assigned params in-place
@@ -260,7 +256,6 @@ def train_loop(
             # If these gradients do not contain infs or NaNs, optimizer.step() is then called. Otherwise, optimizer.step() is skipped.
             scaler.step(optimizer)
             scaler.update()
-
             timings.append((time.time(),"unscale + clip + step")) # RECORD TIME
 
             current_scale = scaler.get_scale()
@@ -292,9 +287,10 @@ def train_loop(
             # PRINT BATCH TIMINGS 
             d_times = [timings[i+1][0] - timings[i][0] for i in range(len(timings)-1)]
             s_times = [timings[i+1][1] for i in range(len(timings)-1)]
-        
-            print("TRAINING TIMINGS:")
-            print(tuple(zip(s_times, d_times)))
+
+            if get_timings:
+                print("TRAINING TIMINGS:")
+                print(tuple(zip(s_times, d_times)))
 
         # average losses over all batches from epoch loop
         avg_train_loss = train_loss_accum / len(train_loader)
@@ -365,8 +361,10 @@ if __name__ == "__main__":
     print(f"=== TRAINING ON DEVICE: {device} ===")
 
     # Directory for TensorBoard logs
-    log_dir = "./logs" 
+    log_dir = "./logs"
+    model_dir = "~/IMC/models"
     os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(model_dir, exist_ok=True)
     
     with torch.profiler.profile(
         activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
@@ -397,9 +395,10 @@ if __name__ == "__main__":
             model=model,
             train_loader=dummy_loader,
             val_loader=dummy_loader,
-            num_epochs=1,
+            num_epochs=50,
             device=device,
-            save_path="best_model.pth"
+            save_path=os.path.join(model_dir, "best_model.pth"),
+            get_timings = False
         )
     
     print(f"Profiler results saved to {log_dir}. Run: tensorboard --logdir {log_dir}")

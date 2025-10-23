@@ -22,6 +22,10 @@ log = logging.getLogger("dataloader")
 
 
 class LiverDataset(Dataset):
+    """
+    Implementation based on dataloader shared by Melanie.
+    """
+    
     def __init__(
         self,
         num_samples: int = 100,
@@ -51,6 +55,7 @@ class LiverDataset(Dataset):
         },
         label_path: str = "",
         augment_conf: str = "NONE2D",
+        get_timings: bool = False
     ):
         self.num_samples = num_samples
         self.n_slices = n_slices
@@ -58,6 +63,7 @@ class LiverDataset(Dataset):
         self.img_size = img_size
         self.label_names = label_names
         self.augment_conf = augment_conf
+        self.get_timings = get_timings
 
         # gcs client
         self.gcs_client = storage.Client()
@@ -208,10 +214,10 @@ class LiverDataset(Dataset):
         timings.append((time.time(),"START")) # RECORD TIME
         
         dcm_images = self.open_dicom_slice_from_series(self.path_list[idx], sampling_type="equidistant", stop_before_pixels=False, n_images = self.n_slices)
-        
         timings.append((time.time(),"open_dicom_slice_from_series")) # RECORD TIME
         
         image_list = []
+        
         for image in dcm_images:
             
             # we dont accept images with channel dimension
@@ -244,7 +250,7 @@ class LiverDataset(Dataset):
         
         # convert into torch Tensor
         metadata = torch.tensor(enc_meta_data_df.iloc[0].to_numpy(), dtype=torch.float32)
-
+        
         timings.append((time.time(),"encode_dicom_tags_by_version ")) # RECORD TIME
 
         # --- TARGETS ---
@@ -268,9 +274,10 @@ class LiverDataset(Dataset):
 
         d_times = [timings[i+1][0] - timings[i][0] for i in range(len(timings)-1)]
         s_times = [timings[i+1][1] for i in range(len(timings)-1)]
-        
-        print("DATALOADER TIMINGS:")
-        print(tuple(zip(s_times, d_times)))
+
+        if self.get_timings:
+            print("DATALOADER TIMINGS:")
+            print(tuple(zip(s_times, d_times)))
         
         return images, metadata, targets
 
