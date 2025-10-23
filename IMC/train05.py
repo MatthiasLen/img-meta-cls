@@ -377,7 +377,7 @@ if __name__ == "__main__":
     ) as prof:
     
         # liver dataset
-        dummy_dataset = LiverDataset(num_samples=512, n_slices=5, label_path="~/IMC/pvai_labels_20250603.csv")
+        dummy_dataset = LiverDataset(num_samples=512, n_slices=5, label_path="~/pvai_labels_20250603.csv")
         dummy_loader = DataLoader(dummy_dataset, batch_size=16, shuffle=True)
         cl_d = dummy_dataset.get_n_labels()
         print("Label config", cl_d)
