@@ -2,6 +2,7 @@ import logging
 from ast import literal_eval
 from typing import Any, Dict, List, Tuple
 
+import time
 import copy 
 import random
 
@@ -200,11 +201,17 @@ class LiverDataset(Dataset):
         
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...]]:
+
+        timings = []
         
         # --- IMAGES ---
-        dcm_images = self.open_dicom_slice_from_series(self.path_list[idx], sampling_type="equidistant", stop_before_pixels=False, n_images = self.n_slices)
-        image_list = []
+        timings.append((time.time(),"START")) # RECORD TIME
         
+        dcm_images = self.open_dicom_slice_from_series(self.path_list[idx], sampling_type="equidistant", stop_before_pixels=False, n_images = self.n_slices)
+        
+        timings.append((time.time(),"open_dicom_slice_from_series")) # RECORD TIME
+        
+        image_list = []
         for image in dcm_images:
             
             # we dont accept images with channel dimension
@@ -218,7 +225,9 @@ class LiverDataset(Dataset):
             image_list.append(torch.Tensor(image).unsqueeze(0).to(torch.float32))
             
         images = torch.stack(image_list, dim=0)  # (N_slices, 1, H, W)
-
+        
+        timings.append((time.time(),"augment + torch.tensor")) # RECORD TIME
+        
         # --- METADATA ---
         
         # creast single row dataframe containing all labels / meta related to indexed sample
@@ -235,7 +244,8 @@ class LiverDataset(Dataset):
         
         # convert into torch Tensor
         metadata = torch.tensor(enc_meta_data_df.iloc[0].to_numpy(), dtype=torch.float32)
-        
+
+        timings.append((time.time(),"encode_dicom_tags_by_version ")) # RECORD TIME
 
         # --- TARGETS ---
         label_idx_dict: Dict[str, int] = {}
@@ -253,7 +263,15 @@ class LiverDataset(Dataset):
                 print(f"WARNING: Label value {label_value} not in label names of label class {label_class}, found {self.label_names[label_class]} only")
 
         targets = tuple(torch.tensor(label_idx_dict.get(label_class, -1)) for label_class in self.label_names.keys())
-           
+
+        timings.append((time.time(),"build label_idx_dict")) # RECORD TIME
+
+        d_times = [timings[i+1][0] - timings[i][0] for i in range(len(timings)-1)]
+        s_times = [timings[i+1][1] for i in range(len(timings)-1)]
+        
+        print("DATALOADER TIMINGS:")
+        print(tuple(zip(s_times, d_times)))
+        
         return images, metadata, targets
 
 

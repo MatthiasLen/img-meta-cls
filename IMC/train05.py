@@ -212,19 +212,28 @@ def train_loop(
         # --- Training loop for current epoch ---
         for batch in tqdm(train_loader, desc=f"Training Epoch {epoch + 1}/{num_epochs}"):
             batch_id += 1
+
+            timings = []
+            timings.append((time.time(),"start")) # RECORD TIME
             
             # unpack batch
             images, metadata, targets = batch
-            images = images.to(device, non_blocking=True) # TODO: profile
-            metadata = metadata.to(device, non_blocking=True)
-            targets = [t.to(device, non_blocking=True) for t in targets]
+            images = images.to(device) # TODO: profile  non_blocking=True
+            metadata = metadata.to(device)
+            targets = [t.to(device) for t in targets]
+
+            timings.append((time.time(),"images/meta/targets.to(device)")) # RECORD TIME
 
             optimizer.zero_grad()
+            
+            timings.append((time.time(),"zero_grad")) # RECORD TIME
             
             with torch.amp.autocast("cuda"):     
                 # Normalize per sample 
                 images = normalize_per_sample(images)
 
+                timings.append((time.time(),"normalize_per_sample")) # RECORD TIME
+                
                 # Plot batch
                 #plot_batch_per_sample(images, title="Each Row = One Sample (5 Images)", id = f"ep{epoch}_b{batch_id}")
 
@@ -234,8 +243,12 @@ def train_loop(
                 # Compute losses
                 loss, indiv_losses = criterion(outputs, targets)
 
+                timings.append((time.time(),"forward + criterion")) # RECORD TIME
+
             # Scales loss. Calls backward() on scaled loss to create scaled gradients
             scaler.scale(loss).backward()
+
+            timings.append((time.time(),"scaler.scale(loss).backward()")) # RECORD TIME
             
             # Unscales the gradients of optimizer's assigned params in-place
             scaler.unscale_(optimizer)
@@ -247,6 +260,8 @@ def train_loop(
             # If these gradients do not contain infs or NaNs, optimizer.step() is then called. Otherwise, optimizer.step() is skipped.
             scaler.step(optimizer)
             scaler.update()
+
+            timings.append((time.time(),"unscale + clip + step")) # RECORD TIME
 
             current_scale = scaler.get_scale()
             
@@ -274,7 +289,14 @@ def train_loop(
             #print(train_losses)
             #print(f"Current task-specific average losses: {np.average(train_losses, axis=0)}")
 
-        # average losses over all batches from training loop
+            # PRINT BATCH TIMINGS 
+            d_times = [timings[i+1][0] - timings[i][0] for i in range(len(timings)-1)]
+            s_times = [timings[i+1][1] for i in range(len(timings)-1)]
+        
+            print("TRAINING TIMINGS:")
+            print(tuple(zip(s_times, d_times)))
+
+        # average losses over all batches from epoch loop
         avg_train_loss = train_loss_accum / len(train_loader)
         avg_ind = np.average(train_losses, axis=0)
 
@@ -342,22 +364,6 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"=== TRAINING ON DEVICE: {device} ===")
 
-    # liver dataset
-    dummy_dataset = LiverDataset(num_samples=1024, n_slices=5, label_path="~/pvai_labels_20250603.csv")
-    dummy_loader = DataLoader(dummy_dataset, batch_size=16, shuffle=True)
-    cl_d = dummy_dataset.get_n_labels()
-    print("Label config", cl_d)
-    
-    # initialize model
-    model = UnifiedTransformerModel(
-        metadata_input_dim=89,
-        metadata_embed_dim=128,
-        transformer_dim=256,
-        num_transformer_layers=4,
-        num_heads=8,
-        num_classes_dict=cl_d
-    )
-
     # Directory for TensorBoard logs
     log_dir = "./logs" 
     os.makedirs(log_dir, exist_ok=True)
@@ -365,16 +371,33 @@ if __name__ == "__main__":
     with torch.profiler.profile(
         activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
         record_shapes=True,
-        profile_memory=True,
-        with_stack=True,
+        profile_memory=False,
+        with_stack=False,
         on_trace_ready=tensorboard_trace_handler(log_dir)
     ) as prof:
+    
+        # liver dataset
+        dummy_dataset = LiverDataset(num_samples=512, n_slices=5, label_path="~/IMC/pvai_labels_20250603.csv")
+        dummy_loader = DataLoader(dummy_dataset, batch_size=16, shuffle=True)
+        cl_d = dummy_dataset.get_n_labels()
+        print("Label config", cl_d)
+        
+        # initialize model
+        model = UnifiedTransformerModel(
+            metadata_input_dim=89,
+            metadata_embed_dim=128,
+            transformer_dim=256,
+            num_transformer_layers=4,
+            num_heads=8,
+            num_classes_dict=cl_d
+        )
+
         # run training
         train_loop(
             model=model,
             train_loader=dummy_loader,
             val_loader=dummy_loader,
-            num_epochs=50,
+            num_epochs=1,
             device=device,
             save_path="best_model.pth"
         )
