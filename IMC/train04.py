@@ -360,14 +360,14 @@ def train_loop(
 if __name__ == "__main__":
     from torch.utils.data import DataLoader
     from network04 import MRISequenceClassifier
-    from dummy_dataloader import DummyMRIDataset
-    from liver_dataloader01 import LiverDataset
+    # from IMC.data.dummy_dataloader import DummyMRIDataset
+    from IMC.data.liver_dataloader01 import LiverDataset
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"=== TRAINING ON DEVICE: {device} ===")
 
     # liver dataset
-    dummy_dataset = LiverDataset(num_samples=1024, n_slices=5, label_path="~/pvai_labels_20250603.csv")
+    dummy_dataset = LiverDataset(num_samples=1024, n_slices=5, label_path="pvai_labels_20250603.csv")
     dummy_loader = DataLoader(dummy_dataset, batch_size=16, shuffle=True)
 
     cl_d = dummy_dataset.get_n_labels()

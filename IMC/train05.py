@@ -27,8 +27,10 @@ from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 
-from helper import plot_batch_per_sample, normalize_per_sample, count_parameters
-from nn.multi_task_loss import MultiTaskLoss
+from IMC.helper import plot_batch_per_sample, normalize_per_sample, count_parameters
+from IMC.helper import setup_experiment_logging, capture_console_to_log, log_training_start, log_training_end
+from IMC.tensorboard_logging import setup_combined_logging, log_training_metrics, log_batch_metrics
+from IMC.nn.multi_task_loss import MultiTaskLoss
 
 def init_weights(module: nn.Module) -> None:
     """
@@ -146,6 +148,7 @@ def train_loop(
     num_epochs: int,
     device: torch.device,
     save_path: Union[str, os.PathLike],
+    tb_logger=None,
 ) -> None:
     """
     Trains a PyTorch model with mixed precision, multi-task loss, and learning rate scheduling.
@@ -215,7 +218,7 @@ def train_loop(
 
             timings = []
             timings.append((time.time(),"start")) # RECORD TIME
-            
+
             # unpack batch
             images, metadata, targets = batch
             images = images.to(device) # TODO: profile  non_blocking=True
@@ -225,15 +228,15 @@ def train_loop(
             timings.append((time.time(),"images/meta/targets.to(device)")) # RECORD TIME
 
             optimizer.zero_grad()
-            
+
             timings.append((time.time(),"zero_grad")) # RECORD TIME
-            
-            with torch.amp.autocast("cuda"):     
-                # Normalize per sample 
+
+            with torch.amp.autocast("cuda"):
+                # Normalize per sample
                 images = normalize_per_sample(images)
 
                 timings.append((time.time(),"normalize_per_sample")) # RECORD TIME
-                
+
                 # Plot batch
                 #plot_batch_per_sample(images, title="Each Row = One Sample (5 Images)", id = f"ep{epoch}_b{batch_id}")
 
@@ -249,13 +252,13 @@ def train_loop(
             scaler.scale(loss).backward()
 
             timings.append((time.time(),"scaler.scale(loss).backward()")) # RECORD TIME
-            
+
             # Unscales the gradients of optimizer's assigned params in-place
             scaler.unscale_(optimizer)
 
             # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            
+
             # Scaler.step() first unscales the gradients of the optimizer's assigned params. If already unscaled this is skipped.
             # If these gradients do not contain infs or NaNs, optimizer.step() is then called. Otherwise, optimizer.step() is skipped.
             scaler.step(optimizer)
@@ -264,7 +267,7 @@ def train_loop(
             timings.append((time.time(),"unscale + clip + step")) # RECORD TIME
 
             current_scale = scaler.get_scale()
-            
+
             # only do scheduler step if scaling is stable
             #if last_scale <= (current_scale * 1.001):
             #    scheduler.step()
@@ -277,22 +280,49 @@ def train_loop(
                 current_lr = param_group['lr']
                 print(f"Current Learning Rate: {current_lr:.2e}")
             print("Sched. LR", scheduler.get_last_lr()[0])
-            
+
+            # Log batch metrics to TensorBoard if available
+            if tb_logger is not None and getattr(tb_logger, 'enabled', False):
+                # Prepare individual losses as list
+                indiv_list = []
+                if isinstance(indiv_losses, (list, tuple)):
+                    # Already per task
+                    indiv_list = [float(x) for x in indiv_losses]
+                elif hasattr(indiv_losses, 'detach'):
+                    # torch tensor
+                    try:
+                        indiv_list = [float(x) for x in indiv_losses.detach().cpu().numpy().tolist()]
+                    except Exception:
+                        pass
+
+                # Current LR and AMP scale
+                current_lr_tb = optimizer.param_groups[0]['lr']
+                amp_scale_tb = current_scale
+
+                log_batch_metrics(
+                    tb_logger,
+                    batch_idx=batch_id,
+                    total_batches=len(train_loader),
+                    epoch=epoch,
+                    loss=float(loss.item()),
+                    individual_losses=indiv_list,
+                    accuracies=None,
+                    lr=current_lr_tb,
+                    amp_scale=amp_scale_tb
+                )
+
             # epoch training loss
             train_loss_accum += loss.item()
-            
+
             # Unpack individual losses
             train_losses.append(indiv_losses)
 
             classification_losses(outputs, targets)
 
-            #print(train_losses)
-            #print(f"Current task-specific average losses: {np.average(train_losses, axis=0)}")
-
-            # PRINT BATCH TIMINGS 
+            # PRINT BATCH TIMINGS
             d_times = [timings[i+1][0] - timings[i][0] for i in range(len(timings)-1)]
             s_times = [timings[i+1][1] for i in range(len(timings)-1)]
-        
+
             print("TRAINING TIMINGS:")
             print(tuple(zip(s_times, d_times)))
 
@@ -307,6 +337,9 @@ def train_loop(
         model.eval()
         val_loss_accum = 0.0
         val_losses = []
+
+        # Optionally compute per-task train accuracies for the epoch using last outputs
+        train_accus = None
 
         with torch.no_grad():
             for batch in val_loader:
@@ -326,10 +359,31 @@ def train_loop(
                 val_losses.append(indiv_losses)
 
         avg_val_loss = val_loss_accum / len(val_loader)
-        avg_ind = np.average(val_losses, axis=0)
+        avg_ind_val = np.average(val_losses, axis=0)
 
         print(f"Epoch {epoch+1} Validation Loss: {avg_val_loss:.4f} "
-              f"(Individual losses: {avg_ind})")
+              f"(Individual losses: {avg_ind_val})")
+
+        # Log epoch-level metrics to TensorBoard
+        if tb_logger is not None and getattr(tb_logger, 'enabled', False):
+            # Prepare individual losses for TB
+            individual_losses_epoch = {
+                'train': [float(x) for x in avg_ind],
+                'val': [float(x) for x in avg_ind_val]
+            }
+
+            log_training_metrics(
+                tb_logger,
+                epoch=epoch,
+                train_loss=float(avg_train_loss),
+                val_loss=float(avg_val_loss),
+                train_accuracies=train_accus,
+                val_accuracies=None,  # Could compute similarly
+                individual_losses=individual_losses_epoch,
+                optimizer=optimizer,
+                model=model,
+                scaler=scaler
+            )
 
         # --- Early stopping & checkpointing ---
         if avg_val_loss < best_val_loss:
@@ -356,50 +410,89 @@ def train_loop(
 # Example usage:
 if __name__ == "__main__":
     from torch.utils.data import DataLoader
-    from network05 import UnifiedTransformerModel
-    from data.liver_dataloader01 import LiverDataset
+    from IMC.network05 import UnifiedTransformerModel
+    from IMC.data.liver_dataloader01 import LiverDataset
     import torch.profiler
     from torch.profiler import profile, tensorboard_trace_handler
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"=== TRAINING ON DEVICE: {device} ===")
 
-    # Directory for TensorBoard logs
-    log_dir = "./logs" 
-    os.makedirs(log_dir, exist_ok=True)
-    
-    with torch.profiler.profile(
-        activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-        record_shapes=True,
-        profile_memory=False,
-        with_stack=False,
-        on_trace_ready=tensorboard_trace_handler(log_dir)
-    ) as prof:
-    
-        # liver dataset
-        dummy_dataset = LiverDataset(num_samples=512, n_slices=5, label_path="~/pvai_labels_20250603.csv")
-        dummy_loader = DataLoader(dummy_dataset, batch_size=16, shuffle=True)
-        cl_d = dummy_dataset.get_n_labels()
-        print("Label config", cl_d)
-        
-        # initialize model
-        model = UnifiedTransformerModel(
-            metadata_input_dim=89,
-            metadata_embed_dim=128,
-            transformer_dim=256,
-            num_transformer_layers=4,
-            num_heads=8,
-            num_classes_dict=cl_d
-        )
+    # Directory for profiling
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    log_dir = os.path.join("./logs", timestamp)
+    profiler_dir = os.path.join(log_dir, "profiler")
+    os.makedirs(profiler_dir, exist_ok=True)
+    experiment_name = ""
 
-        # run training
-        train_loop(
-            model=model,
-            train_loader=dummy_loader,
-            val_loader=dummy_loader,
-            num_epochs=1,
-            device=device,
-            save_path="best_model.pth"
-        )
-    
-    print(f"Profiler results saved to {log_dir}. Run: tensorboard --logdir {log_dir}")
+    # Setup combined logging (file + TensorBoard)
+    logger, log_path, tb_logger = setup_combined_logging(
+        experiment_name=experiment_name,
+        log_dir=log_dir,
+        tb_log_dir=log_dir
+    )
+
+    # Log training start
+    log_training_start(logger, config={"device": str(device)})
+
+    with capture_console_to_log(logger):
+        with torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+            record_shapes=True,
+            profile_memory=False,
+            with_stack=False,
+            on_trace_ready=tensorboard_trace_handler(profiler_dir)
+        ) as prof:
+
+            # liver dataset
+            dummy_dataset = LiverDataset(num_samples=512, n_slices=5, label_path="pvai_labels_20250603.csv")
+            dummy_loader = DataLoader(dummy_dataset, batch_size=16, shuffle=True)
+            cl_d = dummy_dataset.get_n_labels()
+            print("Label config", cl_d)
+
+            # initialize model
+            model = UnifiedTransformerModel(
+                metadata_input_dim=89,
+                metadata_embed_dim=128,
+                transformer_dim=256,
+                num_transformer_layers=4,
+                num_heads=8,
+                num_classes_dict=cl_d
+            )
+
+            # Build optimizer/scheduler/criterion/scaler
+            optimizer = create_optimizer(model, lr=1.0e-6)
+            num_epochs = 1
+            steps_per_epoch = len(dummy_loader)
+            total_steps = num_epochs * steps_per_epoch
+            warmup_steps = int(0.1 * total_steps)
+            scheduler = get_scheduler(optimizer, warmup_steps, total_steps)
+            criterion = MultiTaskLoss(label_smoothing=0.1)
+            scaler = torch.amp.GradScaler("cuda", init_scale=2**16)
+
+            # Use reusable Trainer
+            from IMC.trainer import Trainer
+            trainer = Trainer(
+                model=model,
+                device=device,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                criterion=criterion,
+                scaler=scaler,
+                tb_logger=tb_logger,
+                logger=logger,
+                patience=5,
+            )
+
+            trainer.fit(
+                train_loader=dummy_loader,
+                val_loader=dummy_loader,
+                num_epochs=num_epochs,
+                save_path="best_model.pth",
+            )
+
+        print(f"Profiler results saved to {profiler_dir}. Run: tensorboard --logdir {profiler_dir}")
+
+    # Log training end
+    log_training_end(logger)
+
