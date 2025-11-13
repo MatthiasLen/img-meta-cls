@@ -1,6 +1,18 @@
 import torch
 import torch.nn as nn
 
+class ResidualMLP(nn.Module):
+    def __init__(self, dim, hidden):
+        super().__init__()
+        self.lin1 = nn.Linear(dim, hidden)
+        self.lin2 = nn.Linear(hidden, dim)
+        self.norm = nn.LayerNorm(dim)
+        
+    def forward(self, x):
+        h =  torch.nn.functional.gelu(self.lin1(x))
+        h = self.lin2(h)
+        return self.norm(x + h)
+
 class SparseMetadataEncoder(nn.Module):
     """
     Metadata encoder that naturally handles variable-length metadata and missing entries (NaN simply omitted).
@@ -11,13 +23,16 @@ class SparseMetadataEncoder(nn.Module):
     The final feature representation is obtained by e_i * (1 + alpha) + beta and summed (or averaged) over all observed features.
     """
 
-    def __init__(self,
-                 num_features: int,
-                 index_embed_dim: int = 64,
-                 value_mlp_dim: int = 32,
-                 out_dim: int = 128,
-                 aggregation: str = "mean",
-                 learnable_norm: bool = False):
+    def __init__(
+        self,
+        num_features: int,
+        index_embed_dim: int = 64,
+        value_mlp_dim: int = 32,
+        out_dim: int = 128,
+        aggregation: str = "mean",
+        learnable_norm: bool = False,
+        p_post_dropout : float = 0.05
+    ):
         super().__init__()
 
         self.index_emb = nn.Embedding(num_features, index_embed_dim)
@@ -25,19 +40,24 @@ class SparseMetadataEncoder(nn.Module):
         # Map scalar value to shift and scale vectors
         self.value_mlp = nn.Sequential(
             nn.Linear(1, value_mlp_dim),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(value_mlp_dim, index_embed_dim * 2)
         )
 
         self.post = nn.Sequential(
+            ResidualMLP(index_embed_dim, index_embed_dim * 2),
+            nn.Dropout(p_post_dropout),
             nn.Linear(index_embed_dim, out_dim),
             nn.LayerNorm(out_dim),
-            nn.ReLU()
+            nn.GELU()
         )
 
         assert aggregation in ("sum", "mean"), "aggregation must be 'sum' or 'mean'"
         self.aggregation = aggregation
 
+        # Feature gate to be applied before summation 
+        self.feature_gate = nn.Parameter(torch.ones(num_features))
+        
         # Learnable affine normalization
         self.learnable_norm = learnable_norm
         if self.learnable_norm:
@@ -78,12 +98,23 @@ class SparseMetadataEncoder(nn.Module):
         if self.learnable_norm:
             vals = vals * self.value_scale[feat_idx] + self.value_shift[feat_idx]
 
+        """ 
+        TODO
+        1) Keep a small dictionary of feature types (need to modify this in melanies feature encoder).
+        2) For categorical features: ignore value_mlp, just use index_emb (optionally with one-hot presence or small learned embedding for each category value).
+        3) For numeric: use FiLM/value MLP.
+        """
+        
         # embeddings and modulation
         idx_emb = self.index_emb(feat_idx)         # (N, index_embed_dim)
 
         val_params = self.value_mlp(vals)          # (N, 2D)
         alpha, beta = val_params.chunk(2, dim=1)   # each (N, D)
         item = idx_emb * (1 + alpha) + beta        # small residual scaling and shift
+
+        # TODO: 
+        # gate = self.feature_gate[feat_idx].unsqueeze(1)
+        # item = item * gate
 
 
         # aggregate per sample
