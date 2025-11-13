@@ -37,11 +37,11 @@ class SparseMetadataEncoder(nn.Module):
 
         self.index_emb = nn.Embedding(num_features, index_embed_dim)
 
-        # Map scalar value to shift and scale vectors
+        # Map scalar feature value contextualized by feature embedding to shift and scale vectors
         self.value_mlp = nn.Sequential(
-            nn.Linear(1, value_mlp_dim),
+            nn.Linear(1 + index_embed_dim, value_mlp_dim),
             nn.GELU(),
-            nn.Linear(value_mlp_dim, index_embed_dim * 2)
+            nn.Linear(value_mlp_dim, index_embed_dim * 2) # FiLM params alpha and beta
         )
 
         self.post = nn.Sequential(
@@ -54,9 +54,6 @@ class SparseMetadataEncoder(nn.Module):
 
         assert aggregation in ("sum", "mean"), "aggregation must be 'sum' or 'mean'"
         self.aggregation = aggregation
-
-        # TODO (???) Feature gate to be applied before summation  --> maybe later! 
-        # self.feature_gate = nn.Parameter(torch.ones(num_features))
         
         # Learnable affine normalization
         self.learnable_norm = learnable_norm
@@ -108,13 +105,12 @@ class SparseMetadataEncoder(nn.Module):
         # embeddings and modulation
         idx_emb = self.index_emb(feat_idx)         # (N, index_embed_dim)
 
-        val_params = self.value_mlp(vals)          # (N, 2D)
+        # Each feature's embedding provides context for interpreting its numeric value.
+        val_input = torch.cat([vals, idx_emb], dim=1)
+        val_params = self.value_mlp(val_input)     # (N, 2D)
+        
         alpha, beta = val_params.chunk(2, dim=1)   # each (N, D)
         item = idx_emb * (1 + alpha) + beta        # small residual scaling and shift, FiLM style
-
-        # TODO (???): maybe later! 
-        # gate = self.feature_gate[feat_idx].unsqueeze(1)
-        # item = item * gate
 
 
         # aggregate per sample
