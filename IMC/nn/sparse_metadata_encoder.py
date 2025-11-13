@@ -7,8 +7,8 @@ class SparseMetadataEncoder(nn.Module):
     
     Encodes sparse metadata vectors (with NaNs as missing, zeros as valid).
     Each feature i has a learned embedding e_i. For each observed value v_i,
-    we compute f(v_i) = small MLP(value) that produces a modulation vector.
-    The final feature representation is e_i * f(v_i), summed (or averaged) over all observed features.
+    we compute f(v_i) = small MLP(value) that produces a scaling (alpha) and shift (beta) vector .
+    The final feature representation is obtained by e_i * (1 + alpha) + beta and summed (or averaged) over all observed features.
     """
 
     def __init__(self,
@@ -22,11 +22,11 @@ class SparseMetadataEncoder(nn.Module):
 
         self.index_emb = nn.Embedding(num_features, index_embed_dim)
 
-        # Map scalar value -> modulation vector of same dim as index_emb
+        # Map scalar value to shift and scale vectors
         self.value_mlp = nn.Sequential(
             nn.Linear(1, value_mlp_dim),
             nn.ReLU(),
-            nn.Linear(value_mlp_dim, index_embed_dim)
+            nn.Linear(value_mlp_dim, index_embed_dim * 2)
         )
 
         self.post = nn.Sequential(
@@ -80,11 +80,13 @@ class SparseMetadataEncoder(nn.Module):
 
         # embeddings and modulation
         idx_emb = self.index_emb(feat_idx)         # (N, index_embed_dim)
-        val_emb = self.value_mlp(vals)             # (N, index_embed_dim)
 
-        item = idx_emb * val_emb                   # (N, index_embed_dim)
+        val_params = self.value_mlp(vals)          # (N, 2D)
+        alpha, beta = val_params.chunk(2, dim=1)   # each (N, D)
+        item = idx_emb * (1 + alpha) + beta        # small residual scaling and shift
 
-        # aggregate per batch
+
+        # aggregate per sample
         out_dim = idx_emb.shape[1]
         agg = torch.zeros(B*S, out_dim, device=device)
         agg = agg.index_add(0, sample_idx, item)    # sum along batch
@@ -103,7 +105,7 @@ if __name__ == "__main__":
     B, S, F = 4, 8, 10
     x = torch.randn(B, S, F)
     x[torch.rand_like(x) < 0.8] = float('nan')  # 80% missing
-    x[:, F//2] = 0.0 
+    x[:,:, F//2] = 0.0 
 
     print("Input tensor:")
     print(x)
