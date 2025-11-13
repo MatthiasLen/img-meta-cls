@@ -1,3 +1,6 @@
+import torch
+import torch.nn as nn
+
 class SparseMetadataEncoder(nn.Module):
     """
     Metadata encoder that naturally handles variable-length metadata and missing entries (NaN simply omitted).
@@ -13,7 +16,8 @@ class SparseMetadataEncoder(nn.Module):
                  index_embed_dim: int = 64,
                  value_mlp_dim: int = 32,
                  out_dim: int = 128,
-                 aggregation: str = "mean"):
+                 aggregation: str = "mean",
+                 learnable_norm: bool = False):
         super().__init__()
 
         self.index_emb = nn.Embedding(num_features, index_embed_dim)
@@ -34,38 +38,56 @@ class SparseMetadataEncoder(nn.Module):
         assert aggregation in ("sum", "mean"), "aggregation must be 'sum' or 'mean'"
         self.aggregation = aggregation
 
+        # Learnable affine normalization
+        self.learnable_norm = learnable_norm
+        if self.learnable_norm:
+            self.value_scale = nn.Parameter(torch.ones(num_features))
+            self.value_shift = nn.Parameter(torch.zeros(num_features))
+        else:
+            self.register_parameter("value_scale", None)
+            self.register_parameter("value_shift", None)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: (B, F) tensor with NaN for missing features.
+            x: (B, S, F) tensor with NaN for missing features.
                Zeros are considered valid values.
 
         Returns:
-            (B, out_dim) dense embedding.
+            (B, S,  out_dim) dense embedding.
         """
-        B, F = x.shape
+
         device = x.device
+        
+        B, S, F = x.shape
+        x_flat = x.view(B*S, F)        
 
         # mask of observed (non-NaN) entries
-        mask = ~torch.isnan(x)
-        idxs = torch.nonzero(mask, as_tuple=False)  # shape (N, 2)
+        mask = ~torch.isnan(x_flat)
+        idxs = torch.nonzero(mask, as_tuple=False)  # shape (N, 2) where N is num of non-zero
+        
         if idxs.numel() == 0:
             # no observed entries in batch (unlikely) -> zero vector
-            return torch.zeros(B, self.post[0].out_features, device=device)
+            return torch.zeros(B*S, self.post[0].out_features, device=device)
 
         batch_idx = idxs[:, 0]
         feat_idx = idxs[:, 1]
-        vals = x[batch_idx, feat_idx].unsqueeze(1)  # (N,1)
+        vals = x_flat[batch_idx, feat_idx].unsqueeze(1)  # (N,1)
+        print(vals)
+
+        # Apply learnable normalization if enabled
+        if self.learnable_norm:
+            vals = vals * self.value_scale[feat_idx] + self.value_shift[feat_idx]
 
         # embeddings and modulation
-        idx_emb = self.index_emb(feat_idx)         # (N, d)
-        val_emb = self.value_mlp(vals)             # (N, d)
+        idx_emb = self.index_emb(feat_idx)         # (N, index_embed_dim)
+        val_emb = self.value_mlp(vals)             # (N, index_embed_dim)
 
-        item = idx_emb * val_emb                   # (N, d)
+        item = idx_emb * val_emb                   # (N, index_embed_dim)
 
         # aggregate per batch
         out_dim = idx_emb.shape[1]
-        agg = torch.zeros(B, out_dim, device=device)
+        agg = torch.zeros(B*S, out_dim, device=device)
         agg = agg.index_add(0, batch_idx, item)    # sum along batch
 
         if self.aggregation == "mean":
@@ -73,15 +95,24 @@ class SparseMetadataEncoder(nn.Module):
             counts = mask.sum(dim=1).clamp(min=1).float().unsqueeze(1)
             agg = agg / counts
 
-        out = self.post(agg)                       # (B, out_dim)
+        out_flat = self.post(agg)                       # (B * S, out_dim)
+        out = out_flat.view(B, S, -1)                   # (B, S, out_dim)
+        
         return out
 
 if __name__ == "__main__":
-    B, F = 8, 1000
-    x = torch.randn(B, F)
+    B, S, F = 4, 8, 10
+    x = torch.randn(B, S, F)
     x[torch.rand_like(x) < 0.8] = float('nan')  # 80% missing
-    x[:, 10] = 0.0  # zeros are valid, keep them
+    x[:, F//2] = 0.0 
+
+    print("Input tensor:")
+    print(x)
+    print(x.shape)
     
     encoder = SparseMetadataEncoder(num_features=F, out_dim=128)
     z = encoder(x)
-    print(z.shape)  # (8, 128)
+
+    print("\n\nEncoder output:")
+    print(z)
+    print("output shape:", z.shape) 
