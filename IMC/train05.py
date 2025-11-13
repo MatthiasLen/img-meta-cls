@@ -219,10 +219,10 @@ def train_loop(
             
             # unpack batch
             images, metadata, targets = batch
-            images = images.to(device) # TODO: profile  non_blocking=True
+            images = images.to(device) # TODO: profile with non_blocking=True
             metadata = metadata.to(device)
             targets = [t.to(device) for t in targets]
-            timings.append((time.time(),"images/meta/targets.to(device)")) # RECORD TIME
+            timings.append((time.time(),"images + meta + targets .to(device)")) # RECORD TIME
 
             optimizer.zero_grad()
             timings.append((time.time(),"zero_grad")) # RECORD TIME
@@ -232,7 +232,7 @@ def train_loop(
                 images = normalize_per_sample(images)
                 timings.append((time.time(),"normalize_per_sample")) # RECORD TIME
                 
-                # Plot batch
+                # Plot batch (for debug purposes)
                 #plot_batch_per_sample(images, title="Each Row = One Sample (5 Images)", id = f"ep{epoch}_b{batch_id}")
 
                 # Forward
@@ -263,6 +263,7 @@ def train_loop(
             # only do scheduler step if scaling is stable
             #if last_scale <= (current_scale * 1.001):
             #    scheduler.step()
+            
             last_scale  = current_scale
             scheduler.step()
 
