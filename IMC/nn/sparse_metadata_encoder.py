@@ -75,3 +75,13 @@ class SparseMetadataEncoder(nn.Module):
 
         out = self.post(agg)                       # (B, out_dim)
         return out
+
+if __name__ == "__main__":
+    B, F = 8, 1000
+    x = torch.randn(B, F)
+    x[torch.rand_like(x) < 0.8] = float('nan')  # 80% missing
+    x[:, 10] = 0.0  # zeros are valid, keep them
+    
+    encoder = SparseMetadataEncoder(num_features=F, out_dim=128)
+    z = encoder(x)
+    print(z.shape)  # (8, 128)
