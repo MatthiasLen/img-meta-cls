@@ -67,14 +67,13 @@ class SparseMetadataEncoder(nn.Module):
         idxs = torch.nonzero(mask, as_tuple=False)  # shape (N, 2) where N is num of non-zero
         
         if idxs.numel() == 0:
-            # no observed entries in batch (unlikely) -> zero vector
+            # no observed entries in batch -> zero vector
             return torch.zeros(B*S, self.post[0].out_features, device=device)
 
-        batch_idx = idxs[:, 0]
+        sample_idx = idxs[:, 0]
         feat_idx = idxs[:, 1]
-        vals = x_flat[batch_idx, feat_idx].unsqueeze(1)  # (N,1)
-        print(vals)
-
+        vals = x_flat[sample_idx, feat_idx].unsqueeze(1)  # (N,1)
+        
         # Apply learnable normalization if enabled
         if self.learnable_norm:
             vals = vals * self.value_scale[feat_idx] + self.value_shift[feat_idx]
@@ -88,7 +87,7 @@ class SparseMetadataEncoder(nn.Module):
         # aggregate per batch
         out_dim = idx_emb.shape[1]
         agg = torch.zeros(B*S, out_dim, device=device)
-        agg = agg.index_add(0, batch_idx, item)    # sum along batch
+        agg = agg.index_add(0, sample_idx, item)    # sum along batch
 
         if self.aggregation == "mean":
             # divide by number of observed entries per sample
