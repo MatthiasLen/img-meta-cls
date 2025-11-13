@@ -55,8 +55,8 @@ class SparseMetadataEncoder(nn.Module):
         assert aggregation in ("sum", "mean"), "aggregation must be 'sum' or 'mean'"
         self.aggregation = aggregation
 
-        # Feature gate to be applied before summation 
-        self.feature_gate = nn.Parameter(torch.ones(num_features))
+        # TODO (???) Feature gate to be applied before summation  --> maybe later! 
+        # self.feature_gate = nn.Parameter(torch.ones(num_features))
         
         # Learnable affine normalization
         self.learnable_norm = learnable_norm
@@ -99,9 +99,9 @@ class SparseMetadataEncoder(nn.Module):
             vals = vals * self.value_scale[feat_idx] + self.value_shift[feat_idx]
 
         """ 
-        TODO
-        1) Keep a small dictionary of feature types (need to modify this in melanies feature encoder).
-        2) For categorical features: ignore value_mlp, just use index_emb (optionally with one-hot presence or small learned embedding for each category value).
+        TODO:
+        1) Keep a small dictionary of feature types "cathegorical" vs "continuous" (need to modify this in melanies feature encoder).
+        2) For categorical features: ignore value_mlp, just use index_emb (optionally with one-hot presence, i.e. put NaN instead of 0s and a single 1; or small learned embedding for each category value).
         3) For numeric: use FiLM/value MLP.
         """
         
@@ -110,9 +110,9 @@ class SparseMetadataEncoder(nn.Module):
 
         val_params = self.value_mlp(vals)          # (N, 2D)
         alpha, beta = val_params.chunk(2, dim=1)   # each (N, D)
-        item = idx_emb * (1 + alpha) + beta        # small residual scaling and shift
+        item = idx_emb * (1 + alpha) + beta        # small residual scaling and shift, FiLM style
 
-        # TODO: 
+        # TODO (???): maybe later! 
         # gate = self.feature_gate[feat_idx].unsqueeze(1)
         # item = item * gate
 
