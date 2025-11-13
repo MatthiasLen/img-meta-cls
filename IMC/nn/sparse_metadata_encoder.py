@@ -35,6 +35,7 @@ class SparseMetadataEncoder(nn.Module):
     ):
         super().__init__()
 
+        self.out_dim = out_dim
         self.index_emb = nn.Embedding(num_features, index_embed_dim)
 
         # Map scalar feature value contextualized by feature embedding to shift and scale vectors
@@ -84,47 +85,51 @@ class SparseMetadataEncoder(nn.Module):
         idxs = torch.nonzero(mask, as_tuple=False)  # shape (N, 2) where N is num of non-zero
         
         if idxs.numel() == 0:
-            # no observed entries in batch -> zero vector
-            return torch.zeros(B*S, self.post[0].out_features, device=device)
+            # no observed entries in batch return zero vector
+            return torch.zeros(B, S, self.out_dim, device=device)
 
-        sample_idx = idxs[:, 0]
-        feat_idx = idxs[:, 1]
-        vals = x_flat[sample_idx, feat_idx].unsqueeze(1)  # (N,1)
+        sample_idx = idxs[:, 0] # (N,1), long format, values in [0, B*S)
+        feat_idx = idxs[:, 1]   # (N,1), long format, values in [0, F)
+        vals = x_flat[sample_idx, feat_idx].unsqueeze(1)  # (N,1), long format
         
-        # Apply learnable normalization if enabled
+        # If enabled: apply learnable normalization per feature dimension
+        # This affine transformation is learned ONLY based on training dataset statistics
+        # individually per feature dimension. This is not contextualized etc. like FiLM 
+        # modulation below. 
         if self.learnable_norm:
-            vals = vals * self.value_scale[feat_idx] + self.value_shift[feat_idx]
+            norm_sc = self.value_scale[feat_idx].unsqueeze(1)
+            norm_shift = self.value_shift[feat_idx].unsqueeze(1)
+            vals = vals * norm_sc + norm_shift
 
         """ 
-        TODO:
+        TODO for the future:
         1) Keep a small dictionary of feature types "cathegorical" vs "continuous" (need to modify this in melanies feature encoder).
         2) For categorical features: ignore value_mlp, just use index_emb (optionally with one-hot presence, i.e. put NaN instead of 0s and a single 1; or small learned embedding for each category value).
         3) For numeric: use FiLM/value MLP.
         """
         
         # embeddings and modulation
-        idx_emb = self.index_emb(feat_idx)         # (N, index_embed_dim)
+        idx_emb = self.index_emb(feat_idx) # (N, index_embed_dim)
 
         # Each feature's embedding provides context for interpreting its numeric value.
         val_input = torch.cat([vals, idx_emb], dim=1)
-        val_params = self.value_mlp(val_input)     # (N, 2D)
+        val_params = self.value_mlp(val_input) # (N, 2D), this MLP predicts FiLM alpha and beta
         
-        alpha, beta = val_params.chunk(2, dim=1)   # each (N, D)
-        item = idx_emb * (1 + alpha) + beta        # small residual scaling and shift, FiLM style
-
-
+        alpha, beta = val_params.chunk(2, dim=1)       # each (N, D)
+        modulated_feat = idx_emb * (1 + alpha) + beta  # small residual scaling and shift, FiLM style
+        
         # aggregate per sample
         out_dim = idx_emb.shape[1]
         agg = torch.zeros(B*S, out_dim, device=device)
-        agg = agg.index_add(0, sample_idx, item)    # sum along batch
+        agg = agg.index_add(0, sample_idx, modulated_feat)    # sum along batch
 
         if self.aggregation == "mean":
-            # divide by number of observed entries per sample
+            # divide by number of not NaN features per sample
             counts = mask.sum(dim=1).clamp(min=1).float().unsqueeze(1)
             agg = agg / counts
 
-        out_flat = self.post(agg)                       # (B * S, out_dim)
-        out = out_flat.view(B, S, -1)                   # (B, S, out_dim)
+        out_flat = self.post(agg)     # (B*S, out_dim)
+        out = out_flat.view(B, S, -1) # (B, S, out_dim)
         
         return out
 
