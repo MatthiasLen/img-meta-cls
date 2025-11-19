@@ -1,0 +1,21 @@
+LABEL_NAMES = {
+    "label_SequenceType": [
+        "T1",
+        "T2",
+        "DWI",
+        "ADC",
+        "SUB",
+        "DIXON_F",
+        "DIXON_IN",
+        "DIXON_OPP",
+        "BOLUS",
+        "OTHER",
+        "na",
+    ],
+    "label_FatSat": ["yes", "no", "na"],
+    "label_MRCP": ["yes", "no", "na"],
+    "label_AcquisitionPlane": ["AX", "COR", "SAG", "ORTHO", "ROT", "na"],
+    "label_ContrastPhase": ["pre", "art", "portven", "trans", "hepa", "na"],
+    "label_Contrast": ["pre", "post", "na"],
+    "label_Localizer": ["yes", "no", "na"],
+}
