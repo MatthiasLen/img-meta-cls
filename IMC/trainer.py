@@ -1,12 +1,17 @@
 import time
 import math
 import numpy as np
+from sklearn import logger
 import torch
 from typing import Union
 from torch.utils.data import DataLoader
 
 from IMC.helper import normalize_per_sample
 from IMC.tensorboard_logging import log_batch_metrics, log_training_metrics
+
+import os
+
+DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
 
 def classification_losses(outputs: list , targets: list) -> list:
     """
@@ -49,7 +54,8 @@ class Trainer:
                  scaler: torch.amp.GradScaler,
                  tb_logger=None,
                  logger=None,
-                 patience: int = 5):
+                 patience: int = 5,
+                 img_ft_only: bool = False):
         self.model = model.to(device)
         self.device = device
         self.optimizer = optimizer
@@ -59,16 +65,23 @@ class Trainer:
         self.tb_logger = tb_logger
         self.logger = logger
         self.patience = patience
+        self.img_ft_only = img_ft_only
 
-    def _classification_accuracies(self, outputs, targets):
+    def _classification_accuracies(self, outputs, targets, masks):
         """Compute per-task accuracies from logits and targets."""
         assert len(outputs) == len(targets)
         accu_list = []
-        for output, target in zip(outputs, targets):
+        for output, target, mask in zip(outputs, targets, masks):
             pred = output.detach().cpu().numpy()
             target_np = target.detach().cpu().numpy()
+            mask_np = mask.detach().cpu().numpy()
             pred_cls = np.argmax(pred, axis=1)
-            accuracy = np.mean(pred_cls == target_np)
+            # Only compute accuracy for masked (valid) targets
+            valid_indices = mask_np.astype(bool)
+            if valid_indices.sum() > 0:  # Avoid division by zero
+                accuracy = np.mean(pred_cls[valid_indices] == target_np[valid_indices])
+            else:
+                accuracy = 0.0
             accu_list.append(float(accuracy))
         return accu_list
 
@@ -83,79 +96,114 @@ class Trainer:
         for batch in train_loader:
             batch_id += 1
 
-            timings = []
-            timings.append((time.time(), "start"))
+            images, metadata, targets, masks = batch
 
-            images, metadata, targets = batch
             images = images.to(self.device)
-            metadata = metadata.to(self.device)
+            if not self.img_ft_only:
+                metadata = metadata.to(self.device)
             targets = [t.to(self.device) for t in targets]
+            masks = [m.to(self.device) for m in masks]
 
-            timings.append((time.time(), "to(device)"))
 
             self.optimizer.zero_grad()
-            timings.append((time.time(), "zero_grad"))
 
             with torch.amp.autocast("cuda"):
                 images = normalize_per_sample(images)
-                timings.append((time.time(), "normalize_per_sample"))
 
-                outputs = self.model(images, metadata)
+                if not self.img_ft_only:
+                    outputs = self.model(images, metadata)
+                else:
+                    outputs = self.model(images)
+                
+            loss, indiv_losses = self.criterion(outputs, targets, masks)
 
-                loss, indiv_losses = self.criterion(outputs, targets)
-                timings.append((time.time(), "forward+loss"))
+            # Check for NaN in loss and outputs
 
+            if torch.isnan(loss).any():
+                self.logger.error(f"NaN detected in loss: {loss}")
+                self.logger.error(f"Outputs contain NaN: {[torch.isnan(output).any().item() for output in outputs]}")
+                raise RuntimeError("NaN loss detected - stopping training")
+            
+            if any(torch.isnan(output).any() for output in outputs):
+                self.logger.error("NaN detected in model outputs")
+                self.logger.error(f"Input images stats: min={images.min():.3f}, max={images.max():.3f}, mean={images.mean():.3f}")
+                self.logger.error(f"Input metadata stats: min={metadata.min():.3f}, max={metadata.max():.3f}, mean={metadata.mean():.3f}")
+                raise RuntimeError("NaN outputs detected - stopping training")    
+            
             self.scaler.scale(loss).backward()
-            timings.append((time.time(), "backward"))
+            
+            # Check for NaN in gradients
+            if DEBUG_MODE:
+                self.logger.info("Check gradient after backward")
+                has_nan_grads = False
+                max_grad_norm = 0.0
+                for name, param in self.model.named_parameters():
+                    if param.grad is not None:
+                        if torch.isnan(param.grad).any():
+                            logger.error(f"NaN gradient detected in parameter: {name}")
+                            has_nan_grads = True
+                        if torch.isinf(param.grad).any():
+                            logger.error(f"Inf gradient detected in parameter: {name}")
+                            has_nan_grads = True
+                        max_grad_norm = max(max_grad_norm, param.grad.norm().item())
+                        
+                if has_nan_grads:
+                    logger.error("Invalid gradients detected - skipping step")
+
+                # Log gradient norms periodically
+                if batch_id % 50 == 0:
+                    logger.info(f"Max gradient norm: {max_grad_norm:.4f}")
 
             self.scaler.unscale_(self.optimizer)
+                
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
 
             self.scaler.step(self.optimizer)
             self.scaler.update()
-            timings.append((time.time(), "step+update"))
+
+            self.scheduler.step()
 
             current_scale = self.scaler.get_scale()
             last_scale = current_scale
-            self.scheduler.step()
 
-            # Optional prints
-            if self.logger:
-                self.logger.info(f"Current Scale: {last_scale:.6e}")
-                for pg in self.optimizer.param_groups:
-                    self.logger.info(f"Current LR: {pg['lr']:.2e}")
-                self.logger.info(f"Sched. LR {self.scheduler.get_last_lr()[0]:.2e}")
+            # Optional prints (reduced frequency to avoid log spam)
+            if self.logger and batch_id % 100 == 0:  # Log every 100 batches instead of every batch
+                self.logger.info(f"Batch {batch_id}: Scale: {last_scale:.6e}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
+                
+            # Log scale issues
+            if last_scale < 1.0:
+                self.logger.warning(f"Gradient scale very low: {last_scale:.6e} - possible gradient overflow")
+            elif last_scale > 1e6:
+                self.logger.warning(f"Gradient scale very high: {last_scale:.6e} - possible gradient underflow")
 
             # Accumulate
             train_loss_accum += loss.item()
             train_losses.append(indiv_losses)
 
-            # Batch TB logging
-            if self.tb_logger and getattr(self.tb_logger, 'enabled', False):
-                # Prepare individual losses list
-                indiv_list = []
-                if isinstance(indiv_losses, (list, tuple)):
-                    indiv_list = [float(x) for x in indiv_losses]
-                elif hasattr(indiv_losses, 'detach'):
-                    try:
-                        indiv_list = [float(x) for x in indiv_losses.detach().cpu().numpy().tolist()]
-                    except Exception:
-                        pass
+            # Prepare individual losses list
+            indiv_list = []
+            if isinstance(indiv_losses, (list, tuple)):
+                indiv_list = [float(x) for x in indiv_losses]
+            elif hasattr(indiv_losses, 'detach'):
+                try:
+                    indiv_list = [float(x) for x in indiv_losses.detach().cpu().numpy().tolist()]
+                except Exception:
+                    pass
 
-                current_lr_tb = self.optimizer.param_groups[0]['lr']
-                amp_scale_tb = current_scale
+            current_lr_tb = self.optimizer.param_groups[0]['lr']
+            amp_scale_tb = current_scale
 
-                log_batch_metrics(
-                    self.tb_logger,
-                    batch_idx=batch_id,
-                    total_batches=len(train_loader),
-                    epoch=epoch,
-                    loss=float(loss.item()),
-                    individual_losses=indiv_list,
-                    accuracies=None,
-                    lr=current_lr_tb,
-                    amp_scale=amp_scale_tb
-                )
+            log_batch_metrics(
+                self.tb_logger,
+                batch_idx=batch_id,
+                total_batches=len(train_loader),
+                epoch=epoch,
+                loss=float(loss.item()),
+                individual_losses=indiv_list,
+                accuracies=None,
+                lr=current_lr_tb,
+                amp_scale=amp_scale_tb
+            )
 
         avg_train_loss = train_loss_accum / max(1, len(train_loader))
         avg_ind_train = np.average(train_losses, axis=0)
@@ -169,16 +217,20 @@ class Trainer:
 
         with torch.no_grad():
             for batch in val_loader:
-                images, metadata, targets = batch
+                images, metadata, targets, masks = batch
                 images = images.to(self.device)
                 metadata = metadata.to(self.device)
                 targets = [t.to(self.device) for t in targets]
+                masks = [m.to(self.device) for m in masks]
 
                 with torch.autocast("cuda"):
                     images = normalize_per_sample(images)
-                    outputs = self.model(images, metadata)
-                    loss, indiv_losses = self.criterion(outputs, targets)
-                    val_acc.append(self._classification_accuracies(outputs, targets))
+                    if not self.img_ft_only:
+                        outputs = self.model(images, metadata)
+                    else:
+                        outputs = self.model(images)
+                    loss, indiv_losses = self.criterion(outputs, targets, masks)
+                    val_acc.append(self._classification_accuracies(outputs, targets, masks))
 
                 val_loss_accum += loss.item()
                 val_losses.append(indiv_losses)
@@ -248,3 +300,45 @@ class Trainer:
 
         if self.logger:
             self.logger.info("Training complete.")
+
+    def test(self, test_loader: DataLoader):
+        self.model.eval()
+        test_acc = []
+
+        with torch.no_grad():
+            for batch in test_loader:
+                images, metadata, targets, masks = batch
+                images = images.to(self.device)
+                if not self.img_ft_only:
+                    metadata = metadata.to(self.device)
+                targets = [t.to(self.device) for t in targets]
+                masks = [m.to(self.device) for m in masks]
+
+                with torch.amp.autocast("cuda"):
+                    images = normalize_per_sample(images)
+                    if not self.img_ft_only:
+                        outputs = self.model(images, metadata)
+                    else:
+                        outputs = self.model(images)
+                    test_acc.append(self._classification_accuracies(outputs, targets, masks))
+
+
+        avg_test_acc = np.mean(test_acc, axis=0)
+
+        if self.logger:
+            self.logger.info(f"Test Accuracy: {avg_test_acc}")
+
+        if self.tb_logger and getattr(self.tb_logger, 'enabled', False):
+            self.tb_logger.log_scalar('Test/Accuracy', float(np.mean(avg_test_acc)), 0)
+            for i, acc in enumerate(avg_test_acc):
+                self.tb_logger.log_scalar(f'Test/Task_{i}_Accuracy', float(acc), 0)
+            self.tb_logger.flush()
+        return avg_test_acc
+    
+    def load_checkpoint(self, checkpoint_path: Union[str, bytes]):
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
+
