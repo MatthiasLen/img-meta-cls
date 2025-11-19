@@ -67,7 +67,7 @@ class ContextualImputer(nn.Module):
         x_filled = torch.where(mask, x, self.learnable_fill.unsqueeze(0).expand_as(x))
         
         # Concatenate filled values with mask as input features
-        imputer_input = torch.cat([x_filled, mask.float()], dim=1)
+        imputer_input = torch.cat([x_filled, mask], dim=1).to(x.dtype)
         
         # Predict imputed values for all features
         imputed_values = self.imputer_net(imputer_input)
@@ -77,6 +77,37 @@ class ContextualImputer(nn.Module):
         
         return x_imputed
 
+
+
+
+class NanIgnorer(nn.Module):
+    """
+    A module that handles NaN values by replacing them with zeros.
+    This provides a simple, non-learnable alternative to a contextual imputer.
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Replaces NaN values in the input tensor with 0.
+
+        Args:
+            x (torch.Tensor): Input tensor that may contain NaNs.
+
+        Returns:
+            torch.Tensor: Tensor with NaNs replaced by zeros.
+        """
+        if not isinstance(x, torch.Tensor):
+            raise TypeError(f"Input x must be a torch.Tensor but got {type(x)}")
+
+        if x.dtype not in (torch.float16, torch.float32, torch.float64):
+            raise TypeError("Input tensor x must be a floating-point type")
+
+        # Replace NaNs with 0 using torch.nan_to_num
+        x_zeroed = torch.nan_to_num(x, nan=0.0)
+
+        return x_zeroed
 
 
 
@@ -91,6 +122,10 @@ class MetadataEncoder(nn.Module):
         input_dim (int): Dimensionality of the input metadata vector.
         embed_dim (int, optional): Desired dimensionality of the output embedding. Default is 128.
         dropout (float, optional): Dropout rate
+        imputer (str, optional): Type of imputer to use. One of ['contextual', 'ignore'].
+                                 'contextual' uses a learnable imputer for NaNs.
+                                 'ignore' replaces NaNs with 0.
+                                 Default: 'contextual'.
 
     Inputs:
         x (torch.Tensor): A tensor of shape (B, input_dim) representing the batch of metadata vectors.
@@ -98,11 +133,16 @@ class MetadataEncoder(nn.Module):
     Outputs:
         torch.Tensor: A tensor of shape (B, embed_dim) representing the encoded metadata embeddings.
     """
-    
-    def __init__(self, input_dim : int , embed_dim : int = 128, dropout : float = 0.1):
+
+    def __init__(self, input_dim: int, embed_dim: int = 128, dropout: float = 0.1, imputer: str = 'contextual'):
         super().__init__()
-        
-        self.imputer = ContextualImputer(input_dim, hidden_dim=input_dim)
+
+        if imputer == 'contextual':
+            self.imputer = ContextualImputer(input_dim, hidden_dim=input_dim)
+        elif imputer == 'ignore':
+            self.imputer = NanIgnorer()
+        else:
+            raise ValueError(f"Unknown imputer type: {imputer}. Choose from 'contextual' or 'ignore'.")
 
         hidden_dim = (embed_dim + input_dim) // 2
 
@@ -120,7 +160,7 @@ class MetadataEncoder(nn.Module):
         self.residual = nn.Linear(input_dim, embed_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Impute missing values contextually
+        # Handle missing values
         x = self.imputer(x)
 
         # Embed imputed vector
