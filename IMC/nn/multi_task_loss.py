@@ -1,5 +1,10 @@
 import torch
 import torch.nn as nn
+import logging 
+import os 
+
+logger = logging.getLogger('IMC')
+DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
 class MultiTaskLoss(torch.nn.Module):
     """
     Computes a combined multi-task loss for classification and binary tasks.
@@ -28,15 +33,21 @@ class MultiTaskLoss(torch.nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         self.bce_loss = nn.BCEWithLogitsLoss()
 
-    def forward(self, preds: tuple, targets: tuple) -> tuple[float, list]:
+    def forward(self, preds: tuple, targets: tuple, masks: tuple) -> tuple[float, list]:
         losses = []
         total_loss = 0.
           
         for i in range(len(preds)):
             if preds[i].shape[1] == 1:  # Binary
-                l = self.bce_loss(preds[i].squeeze(1), targets[i])
+                l = self.bce_loss(preds[i].squeeze(1), targets[i] * masks[i].float())
             else:
-                l = self.ce_loss(preds[i], targets[i])
+                l = self.ce_loss(preds[i], targets[i] * masks[i].to(targets[i].dtype))
+
+                if DEBUG_MODE:
+                    has_nan = torch.isnan(l).any()
+                    has_inf = torch.isinf(l).any()
+                    if has_nan or has_inf:
+                        logger.error(f"Loss for task {i} is invalid - NaN: {has_nan}, Inf: {has_inf}")
             total_loss += l
             losses.append(l.item())
     
