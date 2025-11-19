@@ -51,9 +51,15 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from nn.image_encoder import MultiSliceImageEncoder
-from nn.metadata_encoder import MetadataEncoder
-from nn.multi_task_head import MultiTaskHead
+from IMC.nn.image_encoder import MultiSliceImageEncoder
+from IMC.nn.metadata_encoder import MetadataEncoder
+from IMC.nn.sparse_metadata_encoder import SparseMetadataEncoder
+from IMC.nn.multi_task_head import MultiTaskHead
+import logging 
+import os
+
+logger = logging.getLogger('IMC')
+DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
 
 class SliceFeatureFusion(nn.Module):
     """
@@ -220,6 +226,8 @@ class BiDirectionalCrossModalAttentionFusion(nn.Module):
         output = self.output_proj(fused)  # (B, output_dim)
 
         return output
+    
+
 
 
 
@@ -237,6 +245,7 @@ class MRISequenceClassifier(nn.Module):
         metadata_embed_dim: int = 128,
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
+        imputer_type: str = "contextual",
     ):
         super().__init__()
         self.image_encoder = MultiSliceImageEncoder()
@@ -248,7 +257,7 @@ class MRISequenceClassifier(nn.Module):
         )
 
         self.metadata_encoder = MetadataEncoder(
-            metadata_input_dim, embed_dim=metadata_embed_dim
+            metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type
         )
 
         self.embedding_fusion = BiDirectionalCrossModalAttentionFusion(
@@ -281,7 +290,174 @@ class MRISequenceClassifier(nn.Module):
         # feed combined embedding to multi-task head
         res = self.multi_task_head(joint_feat)
         return res
+    
+    @torch.no_grad()
+    def get_metadata_features(self, metadata: torch.Tensor) -> torch.Tensor:
+        """
+        Utility function to extract metadata features alone.
+        Args:
+            metadata (torch.Tensor): DICOM metadata (B, metadata_input_dim)
+        Returns:
+            torch.Tensor: Metadata features (B, metadata_embed_dim)
+        """
+        return self.metadata_encoder(metadata)
 
+class MRISequenceClassifierWithSparseMetadata(nn.Module):
+    """
+    Main model for multi-task MRI classification using SparseMetadataEncoder.
+    Combines image slice features and sparse metadata using cross-attention fusion,
+    then predicts sequence type, viewplane, body region, and contrast.
+    """
+
+    def __init__(
+        self,
+        num_classes_dict: dict,
+        metadata_input_dim: int,
+        metadata_embed_dim: int = 128,
+        fused_feat_dim: int = 256,
+        output_emb_dim: int = 128,
+    ):
+        super().__init__()
+        self.image_encoder = MultiSliceImageEncoder()
+        slice_feat_dim = self.image_encoder.get_feature_dimension()
+        self.slice_fusion = SliceFeatureFusion(
+            slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim
+        )
+        self.metadata_encoder = SparseMetadataEncoder(
+            num_features=metadata_input_dim,
+            out_dim=metadata_embed_dim,
+            reduce=True,
+        )
+        self.embedding_fusion = BiDirectionalCrossModalAttentionFusion(
+            image_emb_dim=fused_feat_dim,
+            metadata_emb_dim=metadata_embed_dim,
+            output_dim=output_emb_dim,
+        )
+        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict)
+
+    def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
+        """
+        Args:
+            image_slices (torch.Tensor): MRI slices (B, N_slices, C, H, W)
+            metadata (torch.Tensor): Sparse DICOM metadata (B, metadata_input_dim) with NaNs for missing values
+        Returns:
+            tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
+        """
+        if DEBUG_MODE:
+            logger.debug(f"Input image_slices shape: {image_slices.shape}")
+            logger.debug(f"Input metadata shape: {metadata.shape}")
+            logger.debug(f"Input stats - Images: min={image_slices.min():.3f}, max={image_slices.max():.3f}, mean={image_slices.mean():.3f}")
+            logger.debug(f"Input stats - Metadata: min={metadata.min():.3f}, max={metadata.max():.3f}, mean={metadata.mean():.3f}")
+            has_nan = torch.isnan(metadata).any()
+            has_inf = torch.isinf(metadata).any()
+            if has_nan or has_inf:
+                logger.error(f"Metadata input contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
+        # Encode image slices
+        slice_feats = self.image_encoder(image_slices)  # (B, N_slices, slice_feat_dim)
+        fused_img_feat = self.slice_fusion(slice_feats)  # (B, fused_feat_dim)
+
+        if DEBUG_MODE:
+            logger.debug(f"Fused image feature shape: {fused_img_feat.shape}")
+            logger.debug(f"Fused image feature stats: min={fused_img_feat.min():.3f}, max={fused_img_feat.max():.3f}, mean={fused_img_feat.mean():.3f}")
+            has_nan = torch.isnan(fused_img_feat).any()
+            has_inf = torch.isinf(fused_img_feat).any()
+            if has_nan or has_inf:
+                logger.debug(f"Fused image feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
+        
+        # Encode sparse metadata
+        # Metadata has shape of (B, metadata_input_dim) with NaNs for missing values
+        metadata = metadata.unsqueeze(1)    # (B, 1, metadata_input_dim) N_slices = 1 for SparseMetadataEncoder
+        metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim)
+
+        if DEBUG_MODE:
+            logger.debug(f"Metadata feature shape: {metadata_feat.shape}")
+            logger.debug(f"Metadata feature stats: min={metadata_feat.min():.3f}, max={metadata_feat.max():.3f}, mean={metadata_feat.mean():.3f}")
+            has_nan = torch.isnan(metadata_feat).any()
+            has_inf = torch.isinf(metadata_feat).any()
+            if has_nan or has_inf:
+                logger.debug(f"Metadata feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
+        
+        # Fuse features from image embedding and meta data embedding
+        joint_feat = self.embedding_fusion(fused_img_feat, metadata_feat)
+
+        if DEBUG_MODE:
+            logger.debug(f"Joint feature shape: {joint_feat.shape}")
+            logger.debug(f"Joint feature stats: min={joint_feat.min():.3f}, max={joint_feat.max():.3f}, mean={joint_feat.mean():.3f}")
+            has_nan = torch.isnan(joint_feat).any()
+            has_inf = torch.isinf(joint_feat).any()
+            if has_nan or has_inf:
+                logger.debug(f"Joint feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
+
+        # feed combined embedding to multi-task head
+        res = self.multi_task_head(joint_feat)
+
+        if DEBUG_MODE:
+            for i, r in enumerate(res):
+                logger.debug(f"Output logits for task {i} shape: {r.shape}")
+                logger.debug(f"Output logits for task {i} stats: min={r.min():.3f}, max={r.max():.3f}, mean={r.mean():.3f}")
+                has_nan = torch.isnan(r).any()
+                has_inf = torch.isinf(r).any()
+                if has_nan or has_inf:
+                    logger.debug(f"Output logits for task {i} contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
+        return res
+    
+    @torch.no_grad()
+    def get_metadata_features(self, metadata: torch.Tensor) -> torch.Tensor:
+        """
+        Utility function to extract metadata features alone.
+        Args:
+            metadata (torch.Tensor): Sparse DICOM metadata (B, metadata_input_dim) with NaNs for missing values
+        Returns:
+            torch.Tensor: Metadata features (B, metadata_embed_dim)
+        """
+        metadata = metadata.unsqueeze(1)    # (B, 1, metadata_input_dim) N_slices = 1 for SparseMetadataEncoder
+        return self.metadata_encoder(metadata)
+
+class ImageFusionClassifier(nn.Module):
+    """
+    Ablation model that only uses image slice features with self-attention fusion.
+    """
+
+    def __init__(
+        self,
+        num_classes_dict: dict,
+        fused_feat_dim: int = 256,
+        output_emb_dim: int = 128,
+    ):
+        super().__init__()
+        self.image_encoder = MultiSliceImageEncoder()
+        
+        slice_feat_dim = self.image_encoder.get_feature_dimension()
+
+        self.slice_fusion = SliceFeatureFusion(
+            slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim
+        )
+
+        self.output_proj = nn.Sequential(
+            nn.Linear(fused_feat_dim, output_emb_dim),
+            nn.LayerNorm(output_emb_dim),
+            nn.GELU(),
+        )
+
+        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict)
+
+    def forward(self, image_slices: torch.Tensor) -> tuple:
+        """
+        Args:
+            image_slices (torch.Tensor): MRI slices (B, N_slices, C, H, W)
+        Returns:
+            tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
+        """
+        
+        # Encode image slices
+        slice_feats = self.image_encoder(image_slices)  # (B, N_slices, slice_feat_dim)
+        fused_img_feat = self.slice_fusion(slice_feats)  # (B, fused_feat_dim)
+        
+        joint_feat = self.output_proj(fused_img_feat)
+
+        # feed combined embedding to multi-task head
+        res = self.multi_task_head(joint_feat)
+        return res
 
 if __name__ == "__main__":
     # Quick test for MRISequenceClassifier

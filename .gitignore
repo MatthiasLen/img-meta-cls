@@ -1,5 +1,7 @@
-pvai_labels_20250603.csv
+labels
+logs
 CLAUDE.md
+notebooks
 # Editors
 .vscode/
 .idea/

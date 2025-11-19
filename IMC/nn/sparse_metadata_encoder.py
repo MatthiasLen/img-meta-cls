@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import logging 
 
 class ResidualMLP(nn.Module):
     def __init__(self, dim, hidden):
@@ -31,7 +32,8 @@ class SparseMetadataEncoder(nn.Module):
         out_dim: int = 128,
         aggregation: str = "mean",
         learnable_norm: bool = False,
-        p_post_dropout : float = 0.05
+        p_post_dropout : float = 0.05,
+        reduce: bool = True
     ):
         super().__init__()
 
@@ -64,6 +66,8 @@ class SparseMetadataEncoder(nn.Module):
         else:
             self.register_parameter("value_scale", None)
             self.register_parameter("value_shift", None)
+
+        self.reduce = reduce
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -130,7 +134,8 @@ class SparseMetadataEncoder(nn.Module):
 
         out_flat = self.post(agg)     # (B*S, out_dim)
         out = out_flat.view(B, S, -1) # (B, S, out_dim)
-        
+        if self.reduce:
+            out = out.mean(dim=1)  # (B, out_dim) average pooling over S
         return out
 
 if __name__ == "__main__":

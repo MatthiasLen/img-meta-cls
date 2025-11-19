@@ -4,7 +4,7 @@ Version: 2025-09-29
 """
 
 import logging
-import elasticdeform
+# import elasticdeform
 import numpy as np
 
 from skimage.filters import gaussian
@@ -273,21 +273,21 @@ def noise(image: np.ndarray, max_std: float = 0.1, rate: float = 0.4, fixed: boo
     return image
 
 
-def elastic(image: np.ndarray, num_control_points: int = 7, sigma_frac: float = 0.1, rate: float = 0.4) -> np.ndarray:
-    """Apply elastic deformation to the image."""
-    if np.random.rand() < rate:
-        # sigma is in pixels
-        max_shape = np.max(np.array(image.shape))
-        sigma = sigma_frac * max_shape / num_control_points
+# def elastic(image: np.ndarray, num_control_points: int = 7, sigma_frac: float = 0.1, rate: float = 0.4) -> np.ndarray:
+#     """Apply elastic deformation to the image."""
+#     if np.random.rand() < rate:
+#         # sigma is in pixels
+#         max_shape = np.max(np.array(image.shape))
+#         sigma = sigma_frac * max_shape / num_control_points
 
-        # apply deformation with a random 3 x 3 (x 3 ) grid
-        # elasticdeform uses spline interpolation
-        # default is order 3, but order 1 guarantees values stay inside previous intensity range
-        deformed_image = elasticdeform.deform_random_grid(image, sigma=sigma, points=num_control_points, order=1)
-        log.debug(f"applied elastic deformation with sigma {sigma} and {num_control_points} control points")
-        return deformed_image
-    else:
-        return image
+#         # apply deformation with a random 3 x 3 (x 3 ) grid
+#         # elasticdeform uses spline interpolation
+#         # default is order 3, but order 1 guarantees values stay inside previous intensity range
+#         deformed_image = elasticdeform.deform_random_grid(image, sigma=sigma, points=num_control_points, order=1)
+#         log.debug(f"applied elastic deformation with sigma {sigma} and {num_control_points} control points")
+#         return deformed_image
+#     else:
+#         return image
 
 
 def gamma(
@@ -388,7 +388,7 @@ def augment(image: np.ndarray, augment_conf: str = "DEFAULT2D") -> np.ndarray:
 
     image = noise(image, **augment_dict["noise"])
 
-    image = elastic(image, **augment_dict["elastic"])
+    # image = elastic(image, **augment_dict["elastic"])
 
     image = gamma(image, **augment_dict["gamma"])
 
