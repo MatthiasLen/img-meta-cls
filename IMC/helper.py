@@ -190,6 +190,9 @@ def setup_console_logging(log_file_path="./logs/training.log",
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
 
+    # Prevent propagation to the root logger to avoid duplicate logs
+    logger.propagate = False
+
     # Create formatters
     detailed_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
@@ -207,7 +210,7 @@ def setup_console_logging(log_file_path="./logs/training.log",
         maxBytes=max_bytes,
         backupCount=backup_count
     )
-    file_handler.setLevel(log_level)
+    file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(detailed_formatter)
     logger.addHandler(file_handler)
 
@@ -222,6 +225,40 @@ def setup_console_logging(log_file_path="./logs/training.log",
 
     return logger, actual_log_path
 
+
+def setup_params_logging(log_dir="./logs",
+                           max_bytes=10*1024*1024,
+                           backup_count=5):
+    """
+    Convenience function to set up logging for experiments with automatic timestamping.
+
+    Args:
+        experiment_name (str): Name of the experiment (becomes part of filename)
+        log_dir (str): Directory to store log files
+        log_level (int): Logging level for file output
+        max_bytes (int): Maximum size of each log file before rotation
+        backup_count (int): Number of backup log files to keep
+
+    Returns:
+        tuple: (logging.Logger, str) - Logger instance and actual log file path
+
+    Example:
+        logger, log_path = setup_params_logging("resnet_training")
+        # Creates: ./logs/resnet_training_20241024_143052.log
+    """
+    log_file_path = os.path.join(log_dir, f"params.log")
+    logger = logging.getLogger('IMC_params')
+    logger.setLevel(logging.DEBUG)  # Set to lowest level, handlers will filter
+
+    file_handler = RotatingFileHandler(
+        log_file_path,
+        maxBytes=max_bytes,
+        backupCount=backup_count
+    )
+    file_handler.setLevel(logging.DEBUG)
+    logger.addHandler(file_handler)
+    logger.info(f"Parameter logging initialized - File: {log_file_path}, Level: {logging.getLevelName(logging.DEBUG)}")
+    return logger
 
 def setup_experiment_logging(experiment_name="training",
                            log_dir="./logs",
@@ -266,6 +303,7 @@ class TeeOutput:
         self.logger = logger
         self.level = level
         self.buffer = ""
+        self._is_writing = False
 
     def write(self, message):
         # Write to original output
@@ -273,12 +311,19 @@ class TeeOutput:
             self.original.write(message)
             self.original.flush()
 
-        # Buffer the message and log complete lines
-        self.buffer += message
-        while '\n' in self.buffer:
-            line, self.buffer = self.buffer.split('\n', 1)
-            if line.strip():  # Only log non-empty lines
-                self.logger.log(self.level, line.strip())
+        if self._is_writing:
+            return
+
+        try:
+            self._is_writing = True
+            # Buffer the message and log complete lines
+            self.buffer += message
+            while '\n' in self.buffer:
+                line, self.buffer = self.buffer.split('\n', 1)
+                if line.strip():  # Only log non-empty lines
+                    self.logger.log(self.level, line.strip())
+        finally:
+            self._is_writing = False
 
     def flush(self):
         if hasattr(self, 'original'):
@@ -304,6 +349,14 @@ def capture_console_to_log(logger, capture_stdout=True, capture_stderr=True):
     original_stdout = sys.stdout
     original_stderr = sys.stderr
 
+    # Find and temporarily remove the console handler to prevent duplication
+    console_handler = None
+    for handler in logger.handlers:
+        if isinstance(handler, logging.StreamHandler) and handler.stream in (sys.stdout, sys.stderr):
+            console_handler = handler
+            logger.removeHandler(handler)
+            break
+
     # Create tee objects
     stdout_tee = None
     stderr_tee = None
@@ -325,6 +378,10 @@ def capture_console_to_log(logger, capture_stdout=True, capture_stderr=True):
         # Restore original stdout/stderr
         sys.stdout = original_stdout
         sys.stderr = original_stderr
+
+        # Add the console handler back if it was removed
+        if console_handler and console_handler not in logger.handlers:
+            logger.addHandler(console_handler)
 
 
 def log_training_start(logger, model=None, config=None):
