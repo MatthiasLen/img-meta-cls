@@ -73,17 +73,17 @@ def normalize_per_sample(batch):
     - Normalize all slices in that sample with these stats.
 
     Args:
-        batch (Tensor): shape (B, N, 1, H, W)
+        batch (Tensor): shape (B, N, H, W)
 
     Returns:
         Tensor: normalized batch, same shape as input
     """
     
-    B, N, C, H, W = batch.shape
+    B, N, H, W = batch.shape
     # Compute mean and std per sample across all slices and pixels
-    # Shape of mean/std: (B, 1, 1, 1, 1) to broadcast correctly
-    mean = batch.view(B, -1).mean(dim=1).view(B, 1, 1, 1, 1)
-    std = batch.view(B, -1).std(dim=1).view(B, 1, 1, 1, 1)
+    # Shape of mean/std: (B, 1, 1, 1) to broadcast correctly
+    mean = batch.view(B, -1).mean(dim=1).view(B, 1, 1, 1)
+    std = batch.view(B, -1).std(dim=1).view(B, 1, 1, 1)
     
     # Avoid division by zero by clamping std to a minimum value (e.g. 1e-8)
     std = std.clamp(min=1e-8)
