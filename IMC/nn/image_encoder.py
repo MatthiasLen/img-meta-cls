@@ -96,7 +96,8 @@ class MultiSliceImageEncoder(nn.Module):
         Returns:
             torch.Tensor: Slice embeddings of shape (B, N_slices, slice_feat_dim)
         """
-        B, N, C, H, W = x.shape
+        B, N, H, W = x.shape
+        C = 1 # For grayscale images
         x = x.view(B * N, C, H, W)  # treat slices as batch
         
         features = self.cnn(x)  # For ResNet18 (B*N, 512, H', W'), for DenseNet121 (B*N, 1024, H', W')
