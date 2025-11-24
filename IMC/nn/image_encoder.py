@@ -92,7 +92,7 @@ class MultiSliceImageEncoder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x (torch.Tensor): Input tensor of shape (B, N_slices, C, H, W)
+            x (torch.Tensor): Input tensor of shape (B, N_slices, H, W)
         Returns:
             torch.Tensor: Slice embeddings of shape (B, N_slices, slice_feat_dim)
         """

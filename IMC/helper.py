@@ -73,7 +73,7 @@ def normalize_per_sample(batch):
     - Normalize all slices in that sample with these stats.
 
     Args:
-        batch (Tensor): shape (B, N, 1, H, W)
+        batch (Tensor): shape (B, N, H, W)
 
     Returns:
         Tensor: normalized batch, same shape as input
