@@ -5,8 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "discrete-continuous-embed-readout>=0.0.40",
     "dotenv>=0.9.9",
     "elasticdeform>=0.5.1",
+    "fastparquet>=2024.11.0",
     "gcs-torch-dataflux>=1.4.0",
     "google-cloud-storage>=3.4.1",
     "ipykernel>=7.0.1",
@@ -20,6 +22,7 @@ dependencies = [
     "onnxruntime-gpu>=1.23.2",
     "onnxscript>=0.5.0",
     "pandas>=2.3.3",
+    "pyarrow>=22.0.0",
     "pydicom>=3.0.1",
     "python-gdcm>3.0.10",
     "scikit-image>=0.25.2",
