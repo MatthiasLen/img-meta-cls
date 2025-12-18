@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torchvision import models
-from torchvision.models.resnet import ResNet18_Weights
+from torchvision.models.resnet import ResNet18_Weights, ResNet50_Weights
 from torchvision.models.densenet import DenseNet121_Weights
 import torch.nn.init as init
 
@@ -11,7 +11,7 @@ class MultiSliceImageEncoder(nn.Module):
     Each slice is processed independently, and the output is a sequence of slice embeddings.
     """
 
-    def __init__(self, pretrained: bool = True, n_channels: int = 1, densenet= True):
+    def __init__(self, pretrained: bool = True, n_channels: int = 1, densenet= True, swin=False):
         super().__init__()
 
         self.densenet = densenet
@@ -45,14 +45,30 @@ class MultiSliceImageEncoder(nn.Module):
 
             # DenseNet121 will create featuremaps with 1024 channels
             self.slice_feat_dim = 1024
+        
+        elif swin:
+            print("SwinV2 backbone")
+            self.cnn = models.swin_v2_b(weights="DEFAULT") if pretrained else models.swin_v2_b(weights="IMAGENET1K_V1")
+            if self.cnn.features[0][0].in_channels != n_channels:
+                old_weights = self.cnn.features[0][0].weight.data.clone()  # shape (128, 3, 4, 4)
+                self.cnn.features[0][0] = nn.Conv2d(
+                    n_channels, 128, kernel_size=4, stride=4, bias=False
+                )
+                if n_channels == 1:
+                    new_weights = old_weights.mean(dim=1, keepdim=True)  # shape (128, 1, 4, 4)
+                    self.cnn.features[0][0].weight.data = new_weights
+                else:
+                    init.xavier_uniform_(self.cnn.features[0][0].weight)
+            self.cnn = nn.Sequential(*list(self.cnn.children())[:-1])
+            self.slice_feat_dim = 1024  # Swin V2 base has 1024 feature dimensions
 
         else:
-            # Load pretrained ResNet18 backbone and adapt for single channel if needed
-            print("ResNet18 backbone")
+            # Load pretrained ResNet50 backbone and adapt for single channel if needed
+            print("ResNet50 backbone")
             self.cnn = (
-                models.resnet18(weights=ResNet18_Weights.DEFAULT)
+                models.resnet50(weights=ResNet50_Weights.DEFAULT)
                 if pretrained
-                else models.resnet18()
+                else models.resnet50()
             )
 
             # Adjust first conv layer if input channel != 3
@@ -70,13 +86,13 @@ class MultiSliceImageEncoder(nn.Module):
                     init.xavier_uniform_(self.cnn.conv1.weight)
 
             # Remove final fc layer and avgpool - since we handle pooling later
-            # output shape: (B, 512, H', W') since last conv layer of ResNet has 512 feature maps
+            # output shape: (B, 2048, H', W') since last conv layer of ResNet has 2048 feature maps
             self.cnn = nn.Sequential(
                 *list(self.cnn.children())[:-2]
             )  
 
-            # ResNet18 will create feature maps with 512 channels
-            self.slice_feat_dim = 512
+            # ResNet50 will create feature maps with 2048 channels
+            self.slice_feat_dim = 2048
 
         self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         
@@ -100,6 +116,7 @@ class MultiSliceImageEncoder(nn.Module):
         x = x.view(B * N, C, H, W)  # treat slices as batch
         
         features = self.cnn(x)  # For ResNet18 (B*N, 512, H', W'), for DenseNet121 (B*N, 1024, H', W')
-        features = self.global_avg_pool(features)
+        if features.dim() == 4:
+            features = self.global_avg_pool(features)
   
         return features.view(B, N, self.slice_feat_dim)  # per slice embeddings, for Resnet18 (B, N, 512), for DenseNet121->(B,N,1024)

@@ -34,7 +34,7 @@ import os
 # Set environment variables or paths for local dataset
 os.environ["DEBUG_MODE"] = "0"  # Enable debug mode
 os.environ["LOCAL_DATASET_PATH"] = "/home/tuan.truong/data/PV.AI"
-os.environ["METADATA_PATH"] = "/home/tuan.truong/codebase/IMC/labels/pvai_labels_20251114_encoded_local.csv"
+os.environ["METADATA_PATH"] = "/home/tuan.truong/codebase/IMC/labels/encoded_metadata_20251217.parquet"
 os.environ["LABEL_CSV_PATH"] = "/home/tuan.truong/codebase/IMC/labels/pvai_labels_20250603_local.csv"
 
 def init_weights(module: nn.Module) -> None:
@@ -129,7 +129,7 @@ if __name__ == "__main__":
     log_dir = os.path.join("./logs", timestamp)
     profiler_dir = os.path.join(log_dir, "profiler")
     os.makedirs(profiler_dir, exist_ok=True)
-    experiment_name = "resnet50_baseline_model_04"
+    experiment_name = "baseline_model_multi_slices_04"
 
     # Setup combined logging (file + TensorBoard)
     logger, log_path, tb_logger = setup_combined_logging(
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     num_epochs = 15
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    log_training_start(logger, config={"device": str(device), "batch_size": batch_size, "num_epochs": num_epochs, "dataset_version": "mip", "model_version": "04", "impute": "yes"})
+    log_training_start(logger, config={"device": str(device), "batch_size": batch_size, "num_epochs": num_epochs, "dataset_version": "local", "model_version": "04", "impute": "yes"})
 
     with capture_console_to_log(logger):
         num_samples = None  # Set to None to use full dataset
@@ -152,7 +152,7 @@ if __name__ == "__main__":
         cl_d = train_loader.dataset.get_n_labels()
         print("Label config", cl_d)
 
-        model = MRISequenceClassifier(metadata_input_dim=88, num_classes_dict=cl_d, img_enc_backbone=None)
+        model = MRISequenceClassifier(metadata_input_dim=119, num_classes_dict=cl_d, img_enc_backbone="densenet")
         model.to(device)
     
         # Initialize weights once before training, do NOT overwrite pretrained weights inside backbone

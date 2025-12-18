@@ -1,15 +1,12 @@
 """
-    TRAINING SCRIPT FOR MODEL VERSION 0.4 
-    2025/09/18 (Modified by Tuan Truong on 2025/11/19)
-
-    Class to manage training with mixed precision and gradient scaling (via torch.amp.GradScaler),
-    including saving and loading of checkpoints with scaler state. Early stopping and learning rate
-    scheduling is included.
-
-    This class handles the training loop, model optimization, and checkpointing,
-    ensuring that the GradScaler's internal state is saved correctly.
-    This enables seamless resumption of mixed precision training without
-    disrupting the dynamic loss scaling process.
+    TRAINING SCRIPT FOR METADATA MODEL (VERSION 04)
+    - Uses local dataset without image features
+    - Custom weight initialization
+    - AdamW optimizer with separate weight decay
+    - Warmup + cosine decay learning rate scheduler
+    - Multi-task classification loss
+    - Combined logging (file + TensorBoard)
+    - Profiling setup
 
 """
 
@@ -25,17 +22,30 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 import numpy as np
 
-from IMC.helper import plot_batch_per_sample, normalize_per_sample, count_parameters
-from IMC.helper import setup_experiment_logging, capture_console_to_log, log_training_start, log_training_end
 from IMC.nn.multi_task_loss import MultiTaskLoss
-
-import os 
+from IMC.helper import capture_console_to_log, log_training_start, log_training_end
+from IMC.tensorboard_logging import setup_combined_logging
+import time 
 
 # Set environment variables or paths for local dataset
 os.environ["DEBUG_MODE"] = "0"  # Enable debug mode
 os.environ["LOCAL_DATASET_PATH"] = "/home/tuan.truong/data/PV.AI"
 os.environ["METADATA_PATH"] = "/home/tuan.truong/codebase/IMC/labels/pvai_labels_20251114_encoded_local.csv"
 os.environ["LABEL_CSV_PATH"] = "/home/tuan.truong/codebase/IMC/labels/pvai_labels_20250603_local.csv"
+
+# Directory for profiling
+timestamp = time.strftime("%Y%m%d_%H%M%S")
+log_dir = os.path.join("./logs", timestamp)
+profiler_dir = os.path.join(log_dir, "profiler")
+os.makedirs(profiler_dir, exist_ok=True)
+experiment_name = "metadata_04"
+
+# Setup combined logging (file + TensorBoard)
+logger, log_path, tb_logger = setup_combined_logging(
+    experiment_name=experiment_name,
+    log_dir=log_dir,
+    tb_log_dir=log_dir
+)
 
 def init_weights(module: nn.Module) -> None:
     """
@@ -58,6 +68,7 @@ def init_weights(module: nn.Module) -> None:
     elif isinstance(module, nn.LayerNorm):
         nn.init.ones_(module.weight)
         nn.init.zeros_(module.bias)
+
 
 def get_scheduler(
     optimizer: Optimizer,
@@ -115,44 +126,42 @@ def create_optimizer(model: torch.nn.Module, lr: float = 1.0e-6, weight_decay: f
 
     return AdamW([{"params": decay, "weight_decay": weight_decay},{"params": no_decay, "weight_decay": 0.0}],lr=lr)
 
-
 # Example usage:
 if __name__ == "__main__":
-    from torch.utils.data import DataLoader
-    from IMC.network04 import MRISequenceClassifier
+    from IMC.network04 import MetadataFusionClassifier
     from IMC.data.liver_dataloader_local import get_train_dataloader, get_valid_dataloader, get_test_dataloader
-    from IMC.tensorboard_logging import setup_combined_logging
-    import time 
 
-    # Directory for profiling
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    log_dir = os.path.join("./logs", timestamp)
-    profiler_dir = os.path.join(log_dir, "profiler")
-    os.makedirs(profiler_dir, exist_ok=True)
-    experiment_name = "resnet50_baseline_model_04"
-
-    # Setup combined logging (file + TensorBoard)
-    logger, log_path, tb_logger = setup_combined_logging(
-        experiment_name=experiment_name,
-        log_dir=log_dir,
-        tb_log_dir=log_dir
-    )
     # Log training start
     batch_size = 16
-    num_epochs = 15
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    log_training_start(logger, config={"device": str(device), "batch_size": batch_size, "num_epochs": num_epochs, "dataset_version": "mip", "model_version": "04", "impute": "yes"})
+    num_epochs = 30
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log_training_start(
+        logger, 
+        config={
+            "device": str(device), 
+            "batch_size": batch_size, 
+            "num_epochs": num_epochs, 
+            "dataset_version": "local", 
+            "model_version": "metadata_04", 
+            "impute": "yes", 
+            "feature": "metadata",
+            "encoder": "sparse"})
 
     with capture_console_to_log(logger):
-        num_samples = None  # Set to None to use full dataset
-        train_loader = get_train_dataloader(batch_size=16, num_samples=num_samples, num_workers=4)
-        val_loader = get_valid_dataloader(batch_size=16, num_samples=num_samples, num_workers=4)
-        test_loader = get_test_dataloader(batch_size=16, num_samples=num_samples, num_workers=4)
+
+        train_loader = get_train_dataloader(batch_size=16, num_samples=None, num_workers=4)
+        val_loader = get_valid_dataloader(batch_size=16, num_samples=None, num_workers=4)
+        test_loader = get_test_dataloader(batch_size=16, num_samples=None, num_workers=4)
         cl_d = train_loader.dataset.get_n_labels()
         print("Label config", cl_d)
 
-        model = MRISequenceClassifier(metadata_input_dim=88, num_classes_dict=cl_d, img_enc_backbone=None)
+        model = MetadataFusionClassifier(
+            num_classes_dict=cl_d,
+            metadata_input_dim=88,
+            metadata_embed_dim=128,
+            output_emb_dim=256,
+            metadata_encoder_type="sparse"
+        )
         model.to(device)
     
         # Initialize weights once before training, do NOT overwrite pretrained weights inside backbone
@@ -173,10 +182,6 @@ if __name__ == "__main__":
         # gradient scaler
         scaler = torch.amp.GradScaler("cuda", init_scale=2**16)
 
-        # task weights 
-        task_weights = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]  # Example weights for 7 tasks
-        # task_weights[4] = 1.2
-        # task_weights[5] = 1.1
 
         from IMC.trainer import Trainer
         trainer = Trainer(
@@ -189,7 +194,7 @@ if __name__ == "__main__":
             tb_logger=tb_logger,
             logger=logger,
             patience=5,
-            task_weights=task_weights
+            img_ft_only=False
         )
         trainer.fit(
             train_loader=train_loader,
