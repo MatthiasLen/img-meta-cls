@@ -246,9 +246,15 @@ class MRISequenceClassifier(nn.Module):
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
         imputer_type: str = "contextual",
+        img_enc_backbone: str | None = "swin", # "densenet" or "swin", None for resnet50 as default
     ):
         super().__init__()
-        self.image_encoder = MultiSliceImageEncoder()
+        if img_enc_backbone == "densenet":
+            self.image_encoder = MultiSliceImageEncoder(densenet=True, swin=False)
+        elif img_enc_backbone == "swin":
+            self.image_encoder = MultiSliceImageEncoder(densenet=False, swin=True)
+        else:
+            self.image_encoder = MultiSliceImageEncoder(densenet=False, swin=False)
         
         slice_feat_dim = self.image_encoder.get_feature_dimension()
 
@@ -276,19 +282,62 @@ class MRISequenceClassifier(nn.Module):
         Returns:
             tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
         """
+        if DEBUG_MODE:
+            logger.debug(f"Input image_slices shape: {image_slices.shape}")
+            logger.debug(f"Input metadata shape: {metadata.shape}")
+            logger.debug(f"Input stats - Images: min={image_slices.min():.3f}, max={image_slices.max():.3f}, mean={image_slices.mean():.3f}")
+            logger.debug(f"Input stats - Metadata: min={metadata.min():.3f}, max={metadata.max():.3f}, mean={metadata.mean():.3f}")
+            has_nan = torch.isnan(metadata).any()
+            has_inf = torch.isinf(metadata).any()
+            if has_nan or has_inf:
+                logger.error(f"Metadata input contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
         
         # Encode image slices
         slice_feats = self.image_encoder(image_slices)  # (B, N_slices, slice_feat_dim)
         fused_img_feat = self.slice_fusion(slice_feats)  # (B, fused_feat_dim)
         
+        if DEBUG_MODE:
+            logger.debug(f"Fused image feature shape: {fused_img_feat.shape}")
+            logger.debug(f"Fused image feature stats: min={fused_img_feat.min():.3f}, max={fused_img_feat.max():.3f}, mean={fused_img_feat.mean():.3f}")
+            has_nan = torch.isnan(fused_img_feat).any()
+            has_inf = torch.isinf(fused_img_feat).any()
+            if has_nan or has_inf:
+                logger.debug(f"Fused image feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
+        
         # Encode metadata
         metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim)
+
+        if DEBUG_MODE:
+            logger.debug(f"Metadata feature shape: {metadata_feat.shape}")
+            logger.debug(f"Metadata feature stats: min={metadata_feat.min():.3f}, max={metadata_feat.max():.3f}, mean={metadata_feat.mean():.3f}")
+            has_nan = torch.isnan(metadata_feat).any()
+            has_inf = torch.isinf(metadata_feat).any()
+            if has_nan or has_inf:
+                logger.debug(f"Metadata feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
         
         # Fuse features from image embedding and meta data embedding
         joint_feat = self.embedding_fusion(fused_img_feat, metadata_feat)
 
+        if DEBUG_MODE:
+            logger.debug(f"Joint feature shape: {joint_feat.shape}")
+            logger.debug(f"Joint feature stats: min={joint_feat.min():.3f}, max={joint_feat.max():.3f}, mean={joint_feat.mean():.3f}")
+            has_nan = torch.isnan(joint_feat).any()
+            has_inf = torch.isinf(joint_feat).any()
+            if has_nan or has_inf:
+                logger.debug(f"Joint feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
+
         # feed combined embedding to multi-task head
         res = self.multi_task_head(joint_feat)
+
+        if DEBUG_MODE:
+            for i, r in enumerate(res):
+                logger.debug(f"Output logits for task {i} shape: {r.shape}")
+                logger.debug(f"Output logits for task {i} stats: min={r.min():.3f}, max={r.max():.3f}, mean={r.mean():.3f}")
+                has_nan = torch.isnan(r).any()
+                has_inf = torch.isinf(r).any()
+                if has_nan or has_inf:
+                    logger.debug(f"Output logits for task {i} contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
+                    
         return res
     
     @torch.no_grad()
@@ -366,7 +415,7 @@ class MRISequenceClassifierWithSparseMetadata(nn.Module):
         
         # Encode sparse metadata
         # Metadata has shape of (B, metadata_input_dim) with NaNs for missing values
-        metadata = metadata.unsqueeze(1)    # (B, 1, metadata_input_dim) N_slices = 1 for SparseMetadataEncoder
+        # metadata = metadata.unsqueeze(1)    # (B, 1, metadata_input_dim) N_slices = 1 for SparseMetadataEncoder
         metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim)
 
         if DEBUG_MODE:
@@ -457,6 +506,62 @@ class ImageFusionClassifier(nn.Module):
 
         # feed combined embedding to multi-task head
         res = self.multi_task_head(joint_feat)
+        return res
+
+class MetadataFusionClassifier(nn.Module):
+    """
+    Ablation model that only uses image slice features with self-attention fusion.
+    """
+
+    def __init__(
+        self,
+        num_classes_dict: dict,
+        metadata_input_dim: int,
+        metadata_embed_dim: int = 128,
+        output_emb_dim: int = 256,
+        metadata_encoder_type: str = "imputer", # "imputer" or "sparse"
+        imputer_type: str = "contextual", # "contextual" or "ignorer"
+    ):
+        super().__init__()
+        logger.info(f"Initializing MetadataFusionClassifier with metadata_encoder_type={metadata_encoder_type}")
+        if metadata_encoder_type == "imputer":
+            self.metadata_encoder = MetadataEncoder(
+                metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type
+            )
+            logger.info(f"Using MetadataEncoder with imputer type: {imputer_type}")
+        elif metadata_encoder_type == "sparse":
+            self.metadata_encoder = SparseMetadataEncoder(
+                num_features=metadata_input_dim,
+                out_dim=metadata_embed_dim,
+                reduce=True,
+            )
+        else:
+            raise ValueError("metadata_encoder_type must be 'imputer' or 'sparse'")
+
+        self.output_proj = nn.Sequential(
+            nn.Linear(metadata_embed_dim, output_emb_dim),
+            nn.LayerNorm(output_emb_dim),
+            nn.GELU(),
+        )
+
+        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict)
+
+    def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
+        """
+        Args:
+            image_slices (torch.Tensor): MRI slices (B, N_slices, C, H, W)
+        Returns:
+            tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
+        """
+        
+        # Encode metadata
+        if self.metadata_encoder.__class__ == SparseMetadataEncoder:
+            metadata = metadata.unsqueeze(1)    # (B, 1, metadata_input_dim) N_slices = 1 for SparseMetadataEncoder
+        metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim)
+        proj_feat = self.output_proj(metadata_feat)
+
+        # feed combined embedding to multi-task head
+        res = self.multi_task_head(proj_feat)
         return res
 
 if __name__ == "__main__":
