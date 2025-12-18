@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 
 from IMC.helper import normalize_per_sample
 from IMC.tensorboard_logging import log_batch_metrics, log_training_metrics
+from pathlib import Path
 
 import os
 
@@ -55,7 +56,8 @@ class Trainer:
                  tb_logger=None,
                  logger=None,
                  patience: int = 5,
-                 img_ft_only: bool = False):
+                 img_ft_only: bool = False,
+                 task_weights: Union[list, None] = None):
         self.model = model.to(device)
         self.device = device
         self.optimizer = optimizer
@@ -66,6 +68,7 @@ class Trainer:
         self.logger = logger
         self.patience = patience
         self.img_ft_only = img_ft_only
+        self.task_weights = task_weights if task_weights is not None else [1.0] * 7
 
     def _classification_accuracies(self, outputs, targets, masks):
         """Compute per-task accuracies from logits and targets."""
@@ -115,7 +118,7 @@ class Trainer:
                 else:
                     outputs = self.model(images)
                 
-            loss, indiv_losses = self.criterion(outputs, targets, masks)
+            loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
 
             # Check for NaN in loss and outputs
 
@@ -229,7 +232,7 @@ class Trainer:
                         outputs = self.model(images, metadata)
                     else:
                         outputs = self.model(images)
-                    loss, indiv_losses = self.criterion(outputs, targets, masks)
+                    loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
                     val_acc.append(self._classification_accuracies(outputs, targets, masks))
 
                 val_loss_accum += loss.item()
@@ -292,6 +295,14 @@ class Trainer:
                 epochs_no_improve += 1
                 if self.logger:
                     self.logger.info(f"No improvement for {epochs_no_improve} epochs.")
+                    self.logger.info(f"Saving latest model checkpoint.")
+                # Save the current model as the latest checkpoint
+                torch.save({
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'scheduler_state_dict': self.scheduler.state_dict(),
+                    'scaler_state_dict': self.scaler.state_dict()
+                }, Path(save_path).with_name("latest_model.pth"))
 
             if (epochs_no_improve >= self.patience) and (epoch >= 0.7 * num_epochs):
                 if self.logger:
