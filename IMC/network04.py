@@ -54,6 +54,7 @@ import torch.nn.functional as F
 from IMC.nn.image_encoder import MultiSliceImageEncoder
 from IMC.nn.metadata_encoder import MetadataEncoder
 from IMC.nn.sparse_metadata_encoder import SparseMetadataEncoder
+from IMC.nn.emb_metadata_encoder import FTTransformerLikeMetadataEncoder
 from IMC.nn.multi_task_head import MultiTaskHead
 import logging 
 import os
@@ -249,13 +250,7 @@ class MRISequenceClassifier(nn.Module):
         img_enc_backbone: str | None = "swin", # "densenet" or "swin", None for resnet50 as default
     ):
         super().__init__()
-        if img_enc_backbone == "densenet":
-            self.image_encoder = MultiSliceImageEncoder(densenet=True, swin=False)
-        elif img_enc_backbone == "swin":
-            self.image_encoder = MultiSliceImageEncoder(densenet=False, swin=True)
-        else:
-            self.image_encoder = MultiSliceImageEncoder(densenet=False, swin=False)
-        
+        self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone) 
         slice_feat_dim = self.image_encoder.get_feature_dimension()
 
         self.slice_fusion = SliceFeatureFusion(
@@ -365,6 +360,7 @@ class MRISequenceClassifierWithSparseMetadata(nn.Module):
         metadata_embed_dim: int = 128,
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
+        metadata_embeder_type: str = "sparse", # "ft" or "sparse"
     ):
         super().__init__()
         self.image_encoder = MultiSliceImageEncoder()
@@ -372,11 +368,17 @@ class MRISequenceClassifierWithSparseMetadata(nn.Module):
         self.slice_fusion = SliceFeatureFusion(
             slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim
         )
-        self.metadata_encoder = SparseMetadataEncoder(
-            num_features=metadata_input_dim,
-            out_dim=metadata_embed_dim,
-            reduce=True,
-        )
+        if metadata_embeder_type == "sparse":
+            self.metadata_encoder = SparseMetadataEncoder(
+                num_features=metadata_input_dim,
+                out_dim=metadata_embed_dim,
+                reduce=True,
+            )            
+        elif metadata_embeder_type == "ft":
+            self.metadata_encoder = FTTransformerLikeMetadataEncoder(
+                out_dim=metadata_embed_dim,
+            )
+
         self.embedding_fusion = BiDirectionalCrossModalAttentionFusion(
             image_emb_dim=fused_feat_dim,
             metadata_emb_dim=metadata_embed_dim,
