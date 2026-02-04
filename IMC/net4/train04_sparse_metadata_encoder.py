@@ -26,25 +26,11 @@ from IMC.tensorboard_logging import setup_combined_logging
 import time 
 
 # Set environment variables or paths for local dataset
-os.environ["DEBUG_MODE"] = "1"  # Enable debug mode
+os.environ["DEBUG_MODE"] = "0"  # Enable debug mode
 os.environ["LOCAL_DATASET_PATH"] = "/home/tuan.truong/data/PV.AI"
-os.environ["METADATA_PATH"] = "/home/tuan.truong/codebase/IMC/labels/pvai_labels_20251114_encoded_local.csv"
+os.environ["METADATA_PATH"] = "/home/tuan.truong/codebase/IMC/labels/encoded_metadata_20251217.parquet"
 os.environ["LABEL_CSV_PATH"] = "/home/tuan.truong/codebase/IMC/labels/pvai_labels_20250603_local.csv"
 
-
-# Directory for profiling
-timestamp = time.strftime("%Y%m%d_%H%M%S")
-log_dir = os.path.join("./logs", timestamp)
-profiler_dir = os.path.join(log_dir, "profiler")
-os.makedirs(profiler_dir, exist_ok=True)
-experiment_name = "model_04_sparse_metadata_encoder"
-
-# Setup combined logging (file + TensorBoard)
-logger, log_path, tb_logger = setup_combined_logging(
-    experiment_name=experiment_name,
-    log_dir=log_dir,
-    tb_log_dir=log_dir
-)
 
 def init_weights(module: nn.Module) -> None:
     """
@@ -99,7 +85,7 @@ def get_scheduler(
     return LambdaLR(optimizer, lr_lambda)
 
 
-def create_optimizer(model: torch.nn.Module, lr: float = 1.0e-6, weight_decay: float = 1e-2) -> Optimizer:
+def create_optimizer(model: torch.nn.Module, lr: float = 1.0e-6, weight_decay: float = 1e-2, eps: float = 1e-8) -> Optimizer:
     """
     AdamW optimizer with separate weight decay for bias and norm layers.
 
@@ -122,7 +108,7 @@ def create_optimizer(model: torch.nn.Module, lr: float = 1.0e-6, weight_decay: f
         else:
             decay.append(param)
 
-    return AdamW([{"params": decay, "weight_decay": weight_decay},{"params": no_decay, "weight_decay": 0.0}],lr=lr)
+    return AdamW([{"params": decay, "weight_decay": weight_decay},{"params": no_decay, "weight_decay": 0.0}],lr=lr, eps=eps)
 
 
 def classification_losses(outputs, targets):
@@ -142,22 +128,57 @@ def classification_losses(outputs, targets):
 if __name__ == "__main__":
     from IMC.network04 import MRISequenceClassifierWithSparseMetadata
     from IMC.data.liver_dataloader_local import get_train_dataloader, get_valid_dataloader, get_test_dataloader
+    import argparse
+    import time
 
+    parser = argparse.ArgumentParser(description="Train MRI Sequence Classifier")
+    parser.add_argument("--backbone", type=str, default="densenet", help="Image encoder backbone")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for training")
+    parser.add_argument("--gpu", type=int, default=1, help="GPU id to use")
+    parser.add_argument("--ckpt", type=str, default=None, help="Path to checkpoint to resume training")
+    parser.add_argument("--version", type=str, default="v1", help="Sparse encoder version: v1 or v2")
+    parser.add_argument("--fusion_module_version", type=str, default="v1", help="Fusion module version: v1 or v2")
+    args = parser.parse_args()
+
+    # Directory for profiling
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    log_dir = os.path.join("./logs", timestamp)
+    profiler_dir = os.path.join(log_dir, "profiler")
+    os.makedirs(profiler_dir, exist_ok=True)
+    experiment_name = f"model_04_sparse_metadata_encoder_{args.backbone}_{args.version}"
+
+    # Setup combined logging (file + TensorBoard)
+    logger, log_path, tb_logger = setup_combined_logging(
+        experiment_name=experiment_name,
+        log_dir=log_dir,
+        tb_log_dir=log_dir
+    )
     # Log training start
-    batch_size = 16
+    batch_size = args.batch_size
     num_epochs = 15
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    log_training_start(logger, config={"device": str(device), "batch_size": batch_size, "num_epochs": num_epochs, "dataset_version": "local", "model_version": "04", "impute": "no"})
+    lr = 1e-6
+    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+    incl_regression = True
+    metadata_dropout = False
+    version = args.version
+    log_training_start(logger, config={"device": str(device), "batch_size": batch_size, "num_epochs": num_epochs, "dataset_version": "local", "model_version": "04", "impute": "yes", "learning_rate": lr, "checkpoint": args.ckpt, "sparse_encoder": True, "img_enc_backbone": args.backbone, "metadata_dropout": metadata_dropout, "sparse_encoder_version": version, "fusion_module_version": args.fusion_module_version})
 
     with capture_console_to_log(logger):
-
-        train_loader = get_train_dataloader(batch_size=16, num_samples=None, num_workers=4)
-        val_loader = get_valid_dataloader(batch_size=16, num_samples=None, num_workers=4)
-        test_loader = get_test_dataloader(batch_size=16, num_samples=None, num_workers=4)
+        num_samples = None  # Use all samples
+        aggregated_metadata= False
+        use_preselected_features = True
+        exclude_contrast_yn = True
+        train_loader = get_train_dataloader(batch_size=batch_size, num_samples=num_samples, num_workers=4, aggregated_metadata=aggregated_metadata, use_preselected_features=use_preselected_features, exclude_contrast_yn=exclude_contrast_yn)
+        val_loader = get_valid_dataloader(batch_size=batch_size, num_samples=num_samples, num_workers=4, aggregated_metadata=aggregated_metadata, use_preselected_features=use_preselected_features, exclude_contrast_yn=exclude_contrast_yn)
+        test_loader = get_test_dataloader(batch_size=batch_size, num_samples=num_samples, num_workers=4, aggregated_metadata=aggregated_metadata, use_preselected_features=use_preselected_features, exclude_contrast_yn=exclude_contrast_yn)
         cl_d = train_loader.dataset.get_n_labels()
         print("Label config", cl_d)
 
-        model = MRISequenceClassifierWithSparseMetadata(metadata_input_dim=88, num_classes_dict=cl_d) # 88 features as angio flag was removed
+        metadata_input_dim = 32 if use_preselected_features else 119
+        if version == "v1":
+            model = MRISequenceClassifierWithSparseMetadata(metadata_input_dim=metadata_input_dim, num_classes_dict=cl_d, metadata_embeder_type="sparse", img_enc_backbone=args.backbone, dropout_metadata=metadata_dropout, fusion_module_version=args.fusion_module_version)
+        else:
+            model = MRISequenceClassifierWithSparseMetadata(metadata_input_dim=metadata_input_dim, num_classes_dict=cl_d, metadata_embeder_type="sparse_v2", img_enc_backbone=args.backbone, dropout_metadata=metadata_dropout, fusion_module_version=args.fusion_module_version)
         model.to(device)
     
         # Initialize weights once before training, do NOT overwrite pretrained weights inside backbone
@@ -169,11 +190,12 @@ if __name__ == "__main__":
         warmup_steps = int(0.1 * total_steps)  # warmup for 10% of total steps
         
         # optimizer
-        optimizer = create_optimizer(model, lr=1.0e-7)  
+        eps = 1.0e-7
+        optimizer = create_optimizer(model, lr=lr, eps=eps)  
         scheduler = get_scheduler(optimizer, warmup_steps, total_steps)
 
         # loss
-        criterion = MultiTaskLoss(label_smoothing=0.1)
+        criterion = MultiTaskLoss(label_smoothing=0.1, incl_regression=True)
 
         # gradient scaler
         scaler = torch.amp.GradScaler("cuda", init_scale=2**16)
@@ -190,6 +212,8 @@ if __name__ == "__main__":
             tb_logger=tb_logger,
             logger=logger,
             patience=5,
+            incl_regression=incl_regression,
+            use_mixed_precision=True
         )
         trainer.fit(
             train_loader=train_loader,
