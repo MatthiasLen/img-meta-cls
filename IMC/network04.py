@@ -586,7 +586,7 @@ class MRISequenceClassifierWithSparseMetadata(nn.Module):
         self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict, incl_regression=include_regression)
         self.dropout_metadata = dropout_metadata
 
-    def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
+    def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> list:
         """
         Args:
             image_slices (torch.Tensor): MRI slices (B, N_slices, C, H, W)
