@@ -46,11 +46,16 @@ class ContextualImputer(nn.Module):
         Forward pass to impute missing values in input tensor x.
 
         Args:
-            x (Tensor): Input tensor of shape (batch_size, num_features) with NaNs indicating missing values.
+            x (Tensor): Input tensor of shape (batch_size, n_slices, num_features) with NaNs indicating missing values.
 
         Returns:
             Tensor: Output tensor of same shape as x with missing entries replaced by imputed values.
         """
+        B, N, F = x.shape
+        if N == 1:
+            x = x.view(B, F)  # (B, num_features)
+        else:
+            x = x.view(B * N, F)  # (B * n_slices, num_features)
 
         if not isinstance(x, torch.Tensor):
             raise TypeError(f"Input x must be a torch.Tensor but got {type(x)}")
@@ -74,6 +79,10 @@ class ContextualImputer(nn.Module):
         
         # Replace missing entries with predicted imputed values
         x_imputed = torch.where(mask, x_filled, imputed_values)
+
+        if N != 1:
+            x_imputed = x_imputed.view(B, N, F)  # reshape back to (B, n_slices, num_features)
+            x_imputed = x_imputed.mean(dim=1)  # average over slices to get (B, num_features)
         
         return x_imputed
 
