@@ -76,53 +76,66 @@ class SparseMetadataEncoder(nn.Module):
         B, S, F = x.shape
         device = x.device
 
-        x_flat = x.view(B * S, F)
+        x_flat = x.reshape(B * S, F)
 
-        # Create a full feature representation
-        all_feats = torch.arange(F, device=device).long().expand(B * S, -1) # (B*S, F)
-        idx_emb = self.index_emb(all_feats) # (B*S, F, D)
+        # ------------------------------------------------------------------
+        # Feature index embeddings
+        # ------------------------------------------------------------------
+        all_feats = torch.arange(F, device=device).unsqueeze(0).expand(B * S, F)
+        idx_emb = self.index_emb(all_feats)  # (B*S, F, D)
 
-        # Identify observed and missing values
-        nan_mask = torch.isnan(x_flat) # (B*S, F)
+        # ------------------------------------------------------------------
+        # Masks
+        # ------------------------------------------------------------------
+        nan_mask = torch.isnan(x_flat)                # (B*S, F)
+        observed_mask = ~nan_mask                     # (B*S, F)
+        observed_mask_f = observed_mask.unsqueeze(-1) # (B*S, F, 1)
 
-        # Create modulated features for observed values
-        observed_mask = ~nan_mask
-        sample_idx, feat_idx = torch.nonzero(observed_mask, as_tuple=True)
+        # ------------------------------------------------------------------
+        # Observed value modulation (fully dense, masked)
+        # ------------------------------------------------------------------
+        # Replace NaNs with zero for safe concatenation
+        safe_vals = torch.where(nan_mask, torch.zeros_like(x_flat), x_flat)
+        vals = safe_vals.unsqueeze(-1)                # (B*S, F, 1)
 
-        if sample_idx.numel() > 0:
-            vals = x_flat[sample_idx, feat_idx].unsqueeze(1)
+        # Prepare value MLP input
+        val_input = torch.cat([vals, idx_emb], dim=-1)   # (B*S, F, 1+D)
+        val_params = self.value_mlp(val_input)           # (B*S, F, 2D)
 
-            observed_idx_emb = idx_emb[sample_idx, feat_idx]
+        alpha, beta = val_params.chunk(2, dim=-1)
 
-            val_input = torch.cat([vals, observed_idx_emb], dim=1)
-            val_params = self.value_mlp(val_input)
-            alpha, beta = val_params.chunk(2, dim=1)
+        modulated = idx_emb * (1.0 + alpha) + beta
 
-            modulated_feat = observed_idx_emb * (1 + alpha) + beta
-            idx_emb[sample_idx, feat_idx] = modulated_feat
+        # Apply modulation only where observed
+        idx_emb = torch.where(observed_mask_f, modulated, idx_emb)
 
-        # Apply NaN embedding for missing values
-        nan_sample_idx, nan_feat_idx = torch.nonzero(nan_mask, as_tuple=True)
-        if nan_sample_idx.numel() > 0:
-            idx_emb[nan_sample_idx, nan_feat_idx] = self.nan_embedding
+        # ------------------------------------------------------------------
+        # NaN embedding for missing values
+        # ------------------------------------------------------------------
+        nan_emb = self.nan_embedding.view(1, 1, -1)
+        idx_emb = torch.where(nan_mask.unsqueeze(-1), nan_emb, idx_emb)
 
-        # Prepend CLS token
-        cls_tokens = self.cls_token.expand(B * S, -1, -1)
+        # ------------------------------------------------------------------
+        # CLS token
+        # ------------------------------------------------------------------
+        cls_tokens = self.cls_token.expand(B * S, 1, -1)
         full_sequence = torch.cat([cls_tokens, idx_emb], dim=1)
 
-        # Process through transformer
+        # ------------------------------------------------------------------
+        # Transformer
+        # ------------------------------------------------------------------
         transformer_out = self.transformer_encoder(full_sequence)
-
-        # Get CLS token output
         cls_output = transformer_out[:, 0]
 
-        # Post-processing
+        # ------------------------------------------------------------------
+        # Output
+        # ------------------------------------------------------------------
         out_flat = self.post(cls_output)
-
-        out = out_flat.view(B, S, self.out_dim)
+        out = out_flat.reshape(B, S, self.out_dim)
 
         if self.reduce:
             out = out.mean(dim=1)
+
         return out
 
 if __name__ == "__main__":

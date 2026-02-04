@@ -52,13 +52,13 @@ class MultiSliceImageEncoder(nn.Module):
                 - "dinov3_vits16", "dinov3_vitb16", "dinov3_vitl16"
         """
         super().__init__()
+        self.backbone = backbone
         self._get_backbone(backbone, pretrained)
 
         # Adapt the first convolutional layer for the given number of input channels
         self._adapt_input_channels(n_channels)
 
         self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.backbone = backbone
 
     def _get_backbone(self, backbone_name: str, pretrained: bool):
         """
