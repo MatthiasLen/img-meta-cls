@@ -73,22 +73,22 @@ def normalize_per_sample(batch):
     - Normalize all slices in that sample with these stats.
 
     Args:
-        batch (Tensor): shape (B, N, 1, H, W)
+        batch (Tensor): shape (B, N, H, W)
 
     Returns:
         Tensor: normalized batch, same shape as input
     """
     B = batch.shape[0]
     # Compute mean and std per sample across all slices and pixels
-    # Shape of mean/std: (B, 1, 1, 1, 1) to broadcast correctly
-    if batch.ndim == 5:
-        mean = batch.view(B, -1).mean(dim=1).view(B, 1, 1, 1, 1)
-        std = batch.view(B, -1).std(dim=1).view(B, 1, 1, 1, 1)
-    elif batch.ndim == 2:
-        mean = batch.view(B, -1).mean(dim=1).view(B, 1)
-        std = batch.view(B, -1).std(dim=1).view(B, 1)
+    # Shape of mean/std: (B, 1, 1, 1) to broadcast correctly
+    if batch.ndim == 4:
+        mean = batch.view(B, -1).mean(dim=1).view(B, 1, 1, 1)
+        std = batch.view(B, -1).std(dim=1).view(B, 1, 1, 1)
+    elif batch.ndim == 3:
+        mean = batch.view(B, -1).mean(dim=1).view(B, 1, 1)
+        std = batch.view(B, -1).std(dim=1).view(B, 1, 1)
     else:
-        raise ValueError("Input batch must be 2D or 5D tensor")
+        raise ValueError("Input batch must be 3D or 5D tensor")
     
     # Avoid division by zero by clamping std to a minimum value (e.g. 1e-8)
     std = std.clamp(min=1e-8)
