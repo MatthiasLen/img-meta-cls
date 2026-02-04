@@ -72,7 +72,7 @@ class ContextualImputer(nn.Module):
         x_filled = torch.where(mask, x, self.learnable_fill.unsqueeze(0).expand_as(x))
         
         # Concatenate filled values with mask as input features
-        imputer_input = torch.cat([x_filled, mask], dim=1).to(x.dtype)
+        imputer_input = torch.cat([x_filled, mask], dim=-1).to(x.dtype)
         
         # Predict imputed values for all features
         imputed_values = self.imputer_net(imputer_input)
@@ -135,6 +135,8 @@ class MetadataEncoder(nn.Module):
                                  'contextual' uses a learnable imputer for NaNs.
                                  'ignore' replaces NaNs with 0.
                                  Default: 'contextual'.
+        reduce (str, optional): Reduction method if input has multiple entries per sample. One of ['mean', 'max', 'none'].
+                                Default: 'mean'.
 
     Inputs:
         x (torch.Tensor): A tensor of shape (B, input_dim) representing the batch of metadata vectors.
@@ -143,7 +145,7 @@ class MetadataEncoder(nn.Module):
         torch.Tensor: A tensor of shape (B, embed_dim) representing the encoded metadata embeddings.
     """
 
-    def __init__(self, input_dim: int, embed_dim: int = 128, dropout: float = 0.1, imputer: str = 'contextual'):
+    def __init__(self, input_dim: int, embed_dim: int = 128, dropout: float = 0.1, imputer: str = 'contextual', reduce: str = 'mean'):
         super().__init__()
 
         if imputer == 'contextual':
@@ -167,6 +169,8 @@ class MetadataEncoder(nn.Module):
         )
 
         self.residual = nn.Linear(input_dim, embed_dim)
+        assert reduce in ['mean', 'max', 'none'], f"Unknown reduce method: {reduce}. Choose from 'mean', 'max', or 'none'."
+        self.reduce = reduce
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Handle missing values
@@ -174,6 +178,12 @@ class MetadataEncoder(nn.Module):
 
         # Embed imputed vector
         x = self.residual(x) + self.proj(x)
+
+        # Reduce if needed
+        if self.reduce == 'mean':
+            x = x.mean(dim=1)
+        elif self.reduce == 'max':
+            x, _ = x.max(dim=1)
         return x
 
 

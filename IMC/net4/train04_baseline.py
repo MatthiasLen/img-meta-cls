@@ -129,7 +129,7 @@ if __name__ == "__main__":
     log_dir = os.path.join("./logs", timestamp)
     profiler_dir = os.path.join(log_dir, "profiler")
     os.makedirs(profiler_dir, exist_ok=True)
-    experiment_name = "baseline_model_04"
+    experiment_name = "resnet50_baseline_model_04"
 
     # Setup combined logging (file + TensorBoard)
     logger, log_path, tb_logger = setup_combined_logging(
@@ -140,18 +140,19 @@ if __name__ == "__main__":
     # Log training start
     batch_size = 16
     num_epochs = 15
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    log_training_start(logger, config={"device": str(device), "batch_size": batch_size, "num_epochs": num_epochs, "dataset_version": "local", "model_version": "04", "impute": "yes"})
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    log_training_start(logger, config={"device": str(device), "batch_size": batch_size, "num_epochs": num_epochs, "dataset_version": "mip", "model_version": "04", "impute": "yes"})
 
     with capture_console_to_log(logger):
-
-        train_loader = get_train_dataloader(batch_size=16, num_samples=None, num_workers=4)
-        val_loader = get_valid_dataloader(batch_size=16, num_samples=None, num_workers=4)
-        test_loader = get_test_dataloader(batch_size=16, num_samples=None, num_workers=4)
+        num_samples = None  # Set to None to use full dataset
+        train_loader = get_train_dataloader(batch_size=16, num_samples=num_samples, num_workers=4)
+        val_loader = get_valid_dataloader(batch_size=16, num_samples=num_samples, num_workers=4)
+        test_loader = get_test_dataloader(batch_size=16, num_samples=num_samples, num_workers=4)
         cl_d = train_loader.dataset.get_n_labels()
         print("Label config", cl_d)
 
-        model = MRISequenceClassifier(metadata_input_dim=88, num_classes_dict=cl_d)
+        model = MRISequenceClassifier(metadata_input_dim=88, num_classes_dict=cl_d, img_enc_backbone=None)
         model.to(device)
     
         # Initialize weights once before training, do NOT overwrite pretrained weights inside backbone
@@ -172,6 +173,10 @@ if __name__ == "__main__":
         # gradient scaler
         scaler = torch.amp.GradScaler("cuda", init_scale=2**16)
 
+        # task weights 
+        task_weights = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]  # Example weights for 7 tasks
+        # task_weights[4] = 1.2
+        # task_weights[5] = 1.1
 
         from IMC.trainer import Trainer
         trainer = Trainer(
@@ -184,6 +189,7 @@ if __name__ == "__main__":
             tb_logger=tb_logger,
             logger=logger,
             patience=5,
+            task_weights=task_weights
         )
         trainer.fit(
             train_loader=train_loader,

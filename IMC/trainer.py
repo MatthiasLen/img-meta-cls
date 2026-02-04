@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 
 from IMC.helper import normalize_per_sample
 from IMC.tensorboard_logging import log_batch_metrics, log_training_metrics
+from pathlib import Path
 
 import os
 
@@ -55,7 +56,10 @@ class Trainer:
                  tb_logger=None,
                  logger=None,
                  patience: int = 5,
-                 img_ft_only: bool = False):
+                 img_ft_only: bool = False,
+                 task_weights: Union[list, None] = None,
+                 use_mixed_precision: bool = True,
+                 incl_regression: bool = True):
         self.model = model.to(device)
         self.device = device
         self.optimizer = optimizer
@@ -66,16 +70,26 @@ class Trainer:
         self.logger = logger
         self.patience = patience
         self.img_ft_only = img_ft_only
+        self.task_weights = task_weights if task_weights is not None else [1.0] * 7
+        self.use_mixed_precision = use_mixed_precision
+        self.incl_regression = incl_regression
 
     def _classification_accuracies(self, outputs, targets, masks):
         """Compute per-task accuracies from logits and targets."""
         assert len(outputs) == len(targets)
         accu_list = []
-        for output, target, mask in zip(outputs, targets, masks):
+        for i, (output, target, mask) in enumerate(zip(outputs, targets, masks)):
             pred = output.detach().cpu().numpy()
             target_np = target.detach().cpu().numpy()
             mask_np = mask.detach().cpu().numpy()
-            pred_cls = np.argmax(pred, axis=1)
+
+            if self.incl_regression and i == 4:  # regression task
+                # For regression, we round predictions to nearest integer class
+                pred = np.rint(pred).astype(int)
+                pred_cls = np.clip(pred, 0, 4)  # Ensure predictions are within valid class range
+                pred_cls = pred_cls.flatten()
+            else:
+                pred_cls = np.argmax(pred, axis=1)
             # Only compute accuracy for masked (valid) targets
             valid_indices = mask_np.astype(bool)
             if valid_indices.sum() > 0:  # Avoid division by zero
@@ -91,7 +105,7 @@ class Trainer:
         train_losses = []
 
         batch_id = 0
-        last_scale = self.scaler.get_scale()
+        last_scale = self.scaler.get_scale() if self.use_mixed_precision else 1.0
 
         for batch in train_loader:
             batch_id += 1
@@ -107,15 +121,23 @@ class Trainer:
 
             self.optimizer.zero_grad()
 
-            with torch.amp.autocast("cuda"):
+            if self.use_mixed_precision:
+                with torch.amp.autocast("cuda"):
+                    images = normalize_per_sample(images)
+
+                    if not self.img_ft_only:
+                        outputs = self.model(images, metadata)
+                    else:
+                        outputs = self.model(images)
+            else:
                 images = normalize_per_sample(images)
 
                 if not self.img_ft_only:
                     outputs = self.model(images, metadata)
                 else:
                     outputs = self.model(images)
-                
-            loss, indiv_losses = self.criterion(outputs, targets, masks)
+
+            loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
 
             # Check for NaN in loss and outputs
 
@@ -123,14 +145,23 @@ class Trainer:
                 self.logger.error(f"NaN detected in loss: {loss}")
                 self.logger.error(f"Outputs contain NaN: {[torch.isnan(output).any().item() for output in outputs]}")
                 raise RuntimeError("NaN loss detected - stopping training")
-            
+
             if any(torch.isnan(output).any() for output in outputs):
                 self.logger.error("NaN detected in model outputs")
                 self.logger.error(f"Input images stats: min={images.min():.3f}, max={images.max():.3f}, mean={images.mean():.3f}")
                 self.logger.error(f"Input metadata stats: min={metadata.min():.3f}, max={metadata.max():.3f}, mean={metadata.mean():.3f}")
                 raise RuntimeError("NaN outputs detected - stopping training")    
             
-            self.scaler.scale(loss).backward()
+            if DEBUG_MODE:
+                # Loss after scaling
+                if self.use_mixed_precision:
+                    scaled_loss = loss * self.scaler.get_scale()
+                    self.logger.info(f"Scaled loss: {scaled_loss.item():.6e}")
+            
+            if self.use_mixed_precision:
+                self.scaler.scale(loss).backward()
+            else:
+                loss.backward()
             
             # Check for NaN in gradients
             if DEBUG_MODE:
@@ -140,30 +171,34 @@ class Trainer:
                 for name, param in self.model.named_parameters():
                     if param.grad is not None:
                         if torch.isnan(param.grad).any():
-                            logger.error(f"NaN gradient detected in parameter: {name}")
+                            self.logger.error(f"NaN gradient detected in parameter: {name}")
                             has_nan_grads = True
                         if torch.isinf(param.grad).any():
-                            logger.error(f"Inf gradient detected in parameter: {name}")
+                            self.logger.error(f"Inf gradient detected in parameter: {name}")
                             has_nan_grads = True
                         max_grad_norm = max(max_grad_norm, param.grad.norm().item())
-                        
+
                 if has_nan_grads:
-                    logger.error("Invalid gradients detected - skipping step")
+                    self.logger.error("Invalid gradients detected - skipping step")
 
                 # Log gradient norms periodically
                 if batch_id % 50 == 0:
                     logger.info(f"Max gradient norm: {max_grad_norm:.4f}")
 
-            self.scaler.unscale_(self.optimizer)
+            if self.use_mixed_precision:
+                self.scaler.unscale_(self.optimizer)
                 
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.5)
 
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
+            if self.use_mixed_precision:
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                self.optimizer.step()
 
             self.scheduler.step()
 
-            current_scale = self.scaler.get_scale()
+            current_scale = self.scaler.get_scale() if self.use_mixed_precision else 1.0
             last_scale = current_scale
 
             # Optional prints (reduced frequency to avoid log spam)
@@ -223,13 +258,22 @@ class Trainer:
                 targets = [t.to(self.device) for t in targets]
                 masks = [m.to(self.device) for m in masks]
 
-                with torch.autocast("cuda"):
+                if self.use_mixed_precision:
+                    with torch.autocast("cuda"):
+                        images = normalize_per_sample(images)
+                        if not self.img_ft_only:
+                            outputs = self.model(images, metadata)
+                        else:
+                            outputs = self.model(images)
+                        loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
+                        val_acc.append(self._classification_accuracies(outputs, targets, masks))
+                else:
                     images = normalize_per_sample(images)
                     if not self.img_ft_only:
                         outputs = self.model(images, metadata)
                     else:
                         outputs = self.model(images)
-                    loss, indiv_losses = self.criterion(outputs, targets, masks)
+                    loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
                     val_acc.append(self._classification_accuracies(outputs, targets, masks))
 
                 val_loss_accum += loss.item()
@@ -292,6 +336,14 @@ class Trainer:
                 epochs_no_improve += 1
                 if self.logger:
                     self.logger.info(f"No improvement for {epochs_no_improve} epochs.")
+                    self.logger.info(f"Saving latest model checkpoint.")
+                # Save the current model as the latest checkpoint
+                torch.save({
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'scheduler_state_dict': self.scheduler.state_dict(),
+                    'scaler_state_dict': self.scaler.state_dict()
+                }, Path(save_path).with_name("latest_model.pth"))
 
             if (epochs_no_improve >= self.patience) and (epoch >= 0.7 * num_epochs):
                 if self.logger:
@@ -314,7 +366,15 @@ class Trainer:
                 targets = [t.to(self.device) for t in targets]
                 masks = [m.to(self.device) for m in masks]
 
-                with torch.amp.autocast("cuda"):
+                if self.use_mixed_precision:
+                    with torch.amp.autocast("cuda"):
+                        images = normalize_per_sample(images)
+                        if not self.img_ft_only:
+                            outputs = self.model(images, metadata)
+                        else:
+                            outputs = self.model(images)
+                        test_acc.append(self._classification_accuracies(outputs, targets, masks))
+                else:
                     images = normalize_per_sample(images)
                     if not self.img_ft_only:
                         outputs = self.model(images, metadata)
