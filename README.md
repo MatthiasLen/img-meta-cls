@@ -2,6 +2,20 @@
 
 IMC (Image Plus Metadata Classifier) is a deep learning system for multi-task medical image classification, specifically designed for MRI sequence classification. The project combines multi-slice medical images with DICOM metadata using a transformer-based fusion architecture.
 
+## 🚀 Model Deployment
+
+Deploy the IMC model as a serverless inference service on Google Cloud Platform:
+
+```bash
+# Quick start - see DEPLOYMENT.md for details
+cd terraform
+./build.sh
+terraform init
+terraform apply
+```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
+
 ## Development Commands
 
 ### Environment Setup
