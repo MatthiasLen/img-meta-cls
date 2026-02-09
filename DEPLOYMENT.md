@@ -53,7 +53,22 @@ This guide explains how to deploy the IMC model inference service to Google Clou
 
 ## Usage
 
-Send a POST request to the `/predict` endpoint:
+The service processes **multiple DICOM series** stored in separate folders within a bucket path.
+
+### Bucket Structure
+
+```
+gs://your-bucket/parent-folder/
+├── series1/          # Each subdirectory is a series
+│   ├── img001.dcm
+│   └── img002.dcm
+├── series2/
+│   └── slice001.dcm
+└── series3/
+    └── dicom001.dcm
+```
+
+### Send Inference Request
 
 ```bash
 SERVICE_URL=$(terraform output -raw service_url)
@@ -61,15 +76,36 @@ SERVICE_URL=$(terraform output -raw service_url)
 curl -X POST ${SERVICE_URL}/predict \
   -H "Content-Type: application/json" \
   -d '{
-    "bucket_path": "gs://your-bucket/path/to/dicom/series"
+    "bucket_path": "gs://your-bucket/parent-folder"
   }'
 ```
 
 The service will:
-1. Download DICOM files from the GCS bucket
-2. Run model inference
-3. Upload predictions as JSON to the same bucket
-4. Return predictions in the HTTP response
+1. Discover all series folders in the bucket path
+2. For each series:
+   - Download DICOM files
+   - Sample slices according to model rules
+   - Run model inference
+   - Upload `prediction.json` to that series folder
+3. Return all predictions in the HTTP response
+
+### Response
+
+```json
+{
+  "bucket_path": "your-bucket/parent-folder",
+  "series_count": 3,
+  "processed_count": 3,
+  "predictions": {
+    "parent-folder/series1": {
+      "pred_SequenceType": "T1",
+      ...
+    },
+    "parent-folder/series2": {...},
+    "parent-folder/series3": {...}
+  }
+}
+```
 
 ## Architecture
 
