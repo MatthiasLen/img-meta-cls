@@ -56,14 +56,17 @@ This guide explains how to deploy the IMC model inference service to Google Clou
    # Get the service URL
    SERVICE_URL=$(terraform output -raw service_url)
    
-   # Check health (service is running)
-   python terraform/service/test_client.py --url $SERVICE_URL health
+   # Authenticate with gcloud (required for accessing the service)
+   gcloud auth login
+   
+   # Check health (service is running) - use --auth flag
+   python terraform/service/test_client.py --url $SERVICE_URL --auth health
    
    # Wait for model to be ready (first startup may take a few minutes)
-   python terraform/service/test_client.py --url $SERVICE_URL ready --wait
+   python terraform/service/test_client.py --url $SERVICE_URL --auth ready --wait
    
    # Send a prediction request
-   python terraform/service/test_client.py --url $SERVICE_URL \
+   python terraform/service/test_client.py --url $SERVICE_URL --auth \
      predict gs://your-bucket/path/to/dicom
    ```
 
@@ -77,21 +80,21 @@ The `terraform/service/test_client.py` script provides three commands:
 
 1. **Health Check** - Verify service is running
    ```bash
-   python terraform/service/test_client.py --url $SERVICE_URL health
+   python terraform/service/test_client.py --url $SERVICE_URL --auth health
    ```
 
 2. **Readiness Check** - Verify model is loaded
    ```bash
    # Simple check
-   python terraform/service/test_client.py --url $SERVICE_URL ready
+   python terraform/service/test_client.py --url $SERVICE_URL --auth ready
    
    # Wait for model to load (first startup)
-   python terraform/service/test_client.py --url $SERVICE_URL ready --wait
+   python terraform/service/test_client.py --url $SERVICE_URL --auth ready --wait
    ```
 
 3. **Send Prediction** - Process DICOM series
    ```bash
-   python terraform/service/test_client.py --url $SERVICE_URL \
+   python terraform/service/test_client.py --url $SERVICE_URL --auth \
      predict gs://your-bucket/patient1/study1 \
      --output predictions.json
    ```
@@ -215,3 +218,51 @@ This implementation follows the requirements:
 ## Support
 
 For issues or questions, see the detailed README in the `terraform/` directory.
+
+## Troubleshooting
+
+### 403 Forbidden Error
+
+If you get a **403 Forbidden** error when accessing the service:
+
+**Cause**: The Cloud Run service requires authentication (default and recommended setting: `allow_public_access = false`)
+
+**Solution: Use Authenticated Requests (Recommended)**
+
+The service is secured by default and requires authentication. Use the `--auth` flag with the test client:
+
+```bash
+# Make sure you're authenticated with gcloud
+gcloud auth login
+
+# Use --auth flag for all requests
+SERVICE_URL=$(terraform output -raw service_url)
+python terraform/service/test_client.py --url $SERVICE_URL --auth ready
+python terraform/service/test_client.py --url $SERVICE_URL --auth health
+```
+
+Or use curl with authentication:
+
+```bash
+# Get authentication token
+TOKEN=$(gcloud auth print-identity-token)
+
+# Make authenticated request
+curl -H "Authorization: Bearer $TOKEN" ${SERVICE_URL}/ready
+curl -H "Authorization: Bearer $TOKEN" ${SERVICE_URL}/health
+```
+
+**Alternative (NOT RECOMMENDED): Enable Public Access**
+
+⚠️ **Security Warning**: Only use this for testing in non-production environments
+
+1. Edit `terraform/terraform.tfvars`:
+   ```bash
+   allow_public_access = true
+   ```
+
+2. Re-apply Terraform:
+   ```bash
+   cd terraform
+   terraform apply
+   ```
