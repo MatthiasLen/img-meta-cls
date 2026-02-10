@@ -2,19 +2,23 @@
 
 IMC (Image Plus Metadata Classifier) is a deep learning system for multi-task medical image classification, specifically designed for MRI sequence classification. The project combines multi-slice medical images with DICOM metadata using a transformer-based fusion architecture.
 
-## 🚀 Model Deployment
+## Model Deployment
 
 Deploy the IMC model as a serverless inference service on Google Cloud Platform:
 
 ```bash
-# Quick start - see DEPLOYMENT.md for details
 cd terraform
+
+# build container and push it ot artifactory
 ./build.sh
+
+# run terraform to and deploy infrastructure
+# Note: alternatively use the script `init_validate_appy.sh`
 terraform init
+terraform plan
 terraform apply
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for complete deployment instructions.
 
 ## Development Commands
 
@@ -65,4 +69,12 @@ python IMC/net4/train04_sparse_metadata_encoder.py
 
 ### Model Export (`IMC/onnx/`)
 - `onnx_metadata_export.py`: ONNX model export utilities
+
+### Source related to deployment (`terraform/`)
+- `main.tf`: terraform file
+- `terraform.tfvars`: terraform configuration
+- `/service`: small flask app to run inference
+- `build.sh` script to build docker container and push to artifactory
+- `build.sh` script to build docker container and push to artifactory
+- `init_validate_appy.sh` script to run trough the terraform init, validate, plan, apply cycle. This can be used to deploy the infrastructure
 
