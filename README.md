@@ -19,6 +19,13 @@ terraform plan
 terraform apply
 ```
 
+Test model e.g. via curl from VM. 
+
+```bash
+curl -i -H "Authorization: Bearer $(gcloud auth print-identity-token)"   'https://imc-inference-service-sir5sxwxha-ez.a.run.app/ready'
+```
+
+Or use the /terraform/test_client.py for checking health and triggering predictions.
 
 ## Development Commands
 
