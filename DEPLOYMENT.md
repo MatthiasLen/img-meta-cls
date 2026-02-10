@@ -51,6 +51,62 @@ This guide explains how to deploy the IMC model inference service to Google Clou
    terraform output service_url
    ```
 
+6. **Test the service**
+   ```bash
+   # Get the service URL
+   SERVICE_URL=$(terraform output -raw service_url)
+   
+   # Check health (service is running)
+   python terraform/service/test_client.py --url $SERVICE_URL health
+   
+   # Wait for model to be ready (first startup may take a few minutes)
+   python terraform/service/test_client.py --url $SERVICE_URL ready --wait
+   
+   # Send a prediction request
+   python terraform/service/test_client.py --url $SERVICE_URL \
+     predict gs://your-bucket/path/to/dicom
+   ```
+
+## Testing Your Deployment
+
+After deployment, use the provided test client to verify everything works:
+
+### Test Client Script
+
+The `terraform/service/test_client.py` script provides three commands:
+
+1. **Health Check** - Verify service is running
+   ```bash
+   python terraform/service/test_client.py --url $SERVICE_URL health
+   ```
+
+2. **Readiness Check** - Verify model is loaded
+   ```bash
+   # Simple check
+   python terraform/service/test_client.py --url $SERVICE_URL ready
+   
+   # Wait for model to load (first startup)
+   python terraform/service/test_client.py --url $SERVICE_URL ready --wait
+   ```
+
+3. **Send Prediction** - Process DICOM series
+   ```bash
+   python terraform/service/test_client.py --url $SERVICE_URL \
+     predict gs://your-bucket/patient1/study1 \
+     --output predictions.json
+   ```
+
+See [terraform/service/README.md](terraform/service/README.md) for complete testing documentation.
+
+### First Startup
+
+On first startup, the container takes **2-5 minutes** to load the ONNX model:
+- The service starts listening on port 8080 immediately ✅
+- Model loads in background thread 🔄
+- `/health` returns 200 during loading ✅
+- `/ready` returns 503 until model is loaded ⏳
+- Use `ready --wait` to automatically wait for model loading
+
 ## Usage
 
 The service processes **multiple DICOM series** stored in separate folders within a bucket path.
