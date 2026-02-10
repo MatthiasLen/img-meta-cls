@@ -31,6 +31,9 @@ DUKE_LABEL_NAMES = {
     "label_Localizer": ["yes", "no", "na"],
 }
 
+# Selected DICOM metadata features for model inference
+# These features are extracted from encoded DICOM tags and used as input
+# to the neural network model alongside image data
 SELECTED_FEATURES = [
     'enc_AcquisitionPlane_ORTHO',
     'enc_SeriesDescription_mrcp',
