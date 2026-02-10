@@ -254,15 +254,20 @@ curl -H "Authorization: Bearer $TOKEN" ${SERVICE_URL}/health
 
 **Alternative (NOT RECOMMENDED): Enable Public Access**
 
-⚠️ **Security Warning**: Only use this for testing in non-production environments
+⚠️ **Security Warning**: Only use this for testing in isolated, non-production environments
 
-1. Edit `terraform/terraform.tfvars`:
+1. Create/edit `terraform/terraform.tfvars` (copy from terraform.tfvars.example if it doesn't exist):
+   ```bash
+   cd terraform
+   cp terraform.tfvars.example terraform.tfvars  # if terraform.tfvars doesn't exist
+   ```
+
+2. Edit `terraform/terraform.tfvars` to enable public access:
    ```bash
    allow_public_access = true
    ```
 
-2. Re-apply Terraform:
+3. Re-apply Terraform:
    ```bash
-   cd terraform
    terraform apply
    ```
