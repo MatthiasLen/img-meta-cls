@@ -1,3 +1,11 @@
+"""
+
+Description like in the other network.py files ? 
+
+Could be helpfulto understand the "evolution".
+
+"""
+
 import torch 
 import torch.nn as nn
 from IMC.nn.image_encoder import MultiSliceImageEncoder
