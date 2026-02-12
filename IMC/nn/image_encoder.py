@@ -230,11 +230,6 @@ class MultiSliceImageEncoder(nn.Module):
         """
         Get the dimensionality of the feature vectors produced by this encoder.
         
-        This is useful for:
-        - Configuring downstream fusion modules that need to know the input dimension
-        - Ensuring compatibility between encoder and classifier heads
-        - Dynamic model construction
-        
         Returns:
             int: Feature dimension (e.g., 1024 for DenseNet121, 2048 for ResNet50)
         """
