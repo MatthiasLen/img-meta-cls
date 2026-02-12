@@ -3,37 +3,70 @@ import torch.nn as nn
 
 class ContextualImputer(nn.Module):
     """
-    Neural network-based imputer for missing values in tabular data.
-
-    This model imputes missing entries (NaNs) in a tensor of shape
-    (batch_size, num_features) by using a context-aware multi-layer perceptron (MLP).
-    It takes both observed values and a binary mask indicating missing features as input.
-    Missing values are initially filled with a learnable parameter vector before
-    imputation.
-
+    Neural Network-based Contextual Imputer for Missing Tabular Data.
+    
+    This module learns to impute missing values (NaNs) in tabular metadata by using a
+    context-aware MLP. Unlike simple strategies (mean/median imputation), this approach
+    learns to predict missing values based on the pattern of observed features.
+    
+    Key Features:
+    - **Learnable Initial Fill**: Each feature has a learnable parameter for initial imputation,
+      which can be thought of as a learned per-feature default value.
+    - **Context-Aware Imputation**: The MLP takes as input both the filled values and a binary
+      mask indicating which features are observed. This allows it to learn which features
+      predict others and to generate context-specific imputations.
+    - **Preserves Observed Values**: Only missing values are replaced; observed values pass
+      through unchanged.
+    
+    Architecture:
+        1. Fill NaNs with learnable per-feature parameters
+        2. Create binary mask (1=observed, 0=missing)
+        3. Concatenate filled values and mask
+        4. Pass through MLP to predict improved imputations
+        5. Replace only the missing values with predictions
+    
+    This is particularly useful for medical metadata where:
+    - Missing patterns contain information (e.g., certain tests not performed)
+    - Features are correlated (e.g., imaging parameters are related)
+    - The model can learn domain-specific imputation strategies
+    
     Args:
         num_features (int): Number of features in the input data.
-        hidden_dim (int): Number of hidden units in the MLP.
+        hidden_dim (int): Number of hidden units in the imputation MLP.
 
     Attributes:
-        learnable_fill (nn.Parameter): Learnable parameter vector used to fill missing entries initially.
-        imputer_net (nn.Sequential): MLP network predicting imputed values.
+        learnable_fill (nn.Parameter): Learnable parameter vector (num_features,) used to
+            fill missing entries initially. These serve as learned per-feature defaults.
+        imputer_net (nn.Sequential): MLP network that predicts imputed values based on the
+            concatenation of filled values and the observation mask.
 
-    Inputs:
-        x (Tensor): Input tensor of shape (batch_size, num_features) with NaNs representing missing values.
+    Input Shape:
+        (batch_size, num_slices, num_features) with NaNs representing missing values.
+        Note: num_slices can be 1 for single-slice data.
 
-    Outputs:
-        Tensor: Imputed tensor of shape (batch_size, num_features) with missing entries replaced by model predictions.
+    Output Shape:
+        (batch_size, num_features) with all NaNs replaced by model predictions.
     """
 
     def __init__(self, num_features: int, hidden_dim: int) -> None:
+        """
+        Initialize the Contextual Imputer.
+        
+        Args:
+            num_features (int): Number of features in the input metadata vector.
+            hidden_dim (int): Hidden dimension of the imputation MLP. Larger values
+                increase model capacity but also computational cost.
+        """
         super().__init__()
         self.num_features = num_features
         
         # Learnable parameter to fill missing values (one scalar per feature)
+        # These serve as learned per-feature defaults and are refined by the MLP
         self.learnable_fill = nn.Parameter(torch.zeros(num_features))
         
-        # MLP to predict imputations from concatenated [values + mask]
+        # MLP to predict imputations from concatenated [filled_values, observation_mask]
+        # Input dimension: num_features (filled values) + num_features (binary mask) = 2 * num_features
+        # Output dimension: num_features (predicted values for all features)
         self.imputer_net = nn.Sequential(
             nn.Linear(num_features * 2, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -43,20 +76,27 @@ class ContextualImputer(nn.Module):
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass to impute missing values in input tensor x.
+        Forward pass to impute missing values in the input tensor.
 
         Args:
-            x (Tensor): Input tensor of shape (batch_size, n_slices, num_features) with NaNs indicating missing values.
+            x (torch.Tensor): Input tensor of shape (B, N, F) where:
+                - B is batch size
+                - N is number of slices/sequences (can be 1)
+                - F is number of features
+                NaNs indicate missing values.
 
         Returns:
-            Tensor: Output tensor of same shape as x with missing entries replaced by imputed values.
+            torch.Tensor: Imputed tensor of shape (B, F) with all NaNs replaced.
+                If N > 1, applies mean aggregation over the slice dimension.
         """
         B, N, F = x.shape
+        # Handle different sequence lengths by reshaping
         if N == 1:
             x = x.view(B, F)  # (B, num_features)
         else:
             x = x.view(B * N, F)  # (B * n_slices, num_features)
 
+        # Input validation
         if not isinstance(x, torch.Tensor):
             raise TypeError(f"Input x must be a torch.Tensor but got {type(x)}")
 
@@ -66,23 +106,30 @@ class ContextualImputer(nn.Module):
         if x.shape[-1] != self.num_features:
             raise ValueError(f"Expected input with {self.num_features} features, but got {x.shape[-1]}")
         
-        mask = ~torch.isnan(x)  # mask indicating observed (non-NaN) values
+        # Create mask: True for observed (non-NaN) values, False for missing
+        mask = ~torch.isnan(x)  # (*, num_features)
         
-        # Fill missing values with learnable parameters (broadcasted across batch)
+        # Step 1: Fill missing values with learnable parameters
+        # Where mask is True (observed), keep original value
+        # Where mask is False (missing), use learnable_fill
         x_filled = torch.where(mask, x, self.learnable_fill.unsqueeze(0).expand_as(x))
         
-        # Concatenate filled values with mask as input features
-        imputer_input = torch.cat([x_filled, mask], dim=-1).to(x.dtype)
+        # Step 2: Prepare input for imputation network
+        # Concatenate filled values with observation mask (converted to float)
+        # The mask tells the network which values are real vs filled
+        imputer_input = torch.cat([x_filled, mask.float()], dim=-1).to(x.dtype)
         
-        # Predict imputed values for all features
-        imputed_values = self.imputer_net(imputer_input)
+        # Step 3: Predict refined imputed values for all features
+        imputed_values = self.imputer_net(imputer_input)  # (*, num_features)
         
-        # Replace missing entries with predicted imputed values
+        # Step 4: Keep observed values, replace only missing values with predictions
+        # This ensures we never modify real data
         x_imputed = torch.where(mask, x_filled, imputed_values)
 
+        # If we had multiple slices, aggregate them
         if N != 1:
-            x_imputed = x_imputed.view(B, N, F)  # reshape back to (B, n_slices, num_features)
-            x_imputed = x_imputed.mean(dim=1)  # average over slices to get (B, num_features)
+            x_imputed = x_imputed.view(B, N, F)  # (B, N, num_features)
+            x_imputed = x_imputed.mean(dim=1)    # (B, num_features) - mean over slices
         
         return x_imputed
 
@@ -91,29 +138,46 @@ class ContextualImputer(nn.Module):
 
 class NanIgnorer(nn.Module):
     """
-    A module that handles NaN values by replacing them with zeros.
-    This provides a simple, non-learnable alternative to a contextual imputer.
+    Simple NaN Handler that Replaces Missing Values with Zeros.
+    
+    This module provides a non-learnable, deterministic approach to handling NaNs
+    by simply replacing them with zeros. This is useful as a baseline or when
+    you want to avoid the complexity of learned imputation.
+    
+    Unlike ContextualImputer, this module:
+    - Has no learnable parameters
+    - Is computationally very cheap
+    - Provides deterministic behavior
+    - May be appropriate when missing values are rare or when zero is a reasonable default
+    
+    Use Cases:
+    - Baseline comparisons against learned imputation
+    - When missing data is rare and doesn't carry much information
+    - When computational efficiency is critical
+    - When you want interpretable, deterministic preprocessing
     """
     def __init__(self):
         super().__init__()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Replaces NaN values in the input tensor with 0.
+        Replace all NaN values in the input tensor with zeros.
 
         Args:
-            x (torch.Tensor): Input tensor that may contain NaNs.
+            x (torch.Tensor): Input tensor that may contain NaNs of any shape.
 
         Returns:
-            torch.Tensor: Tensor with NaNs replaced by zeros.
+            torch.Tensor: Tensor with the same shape as input, with NaNs replaced by 0.0.
         """
+        # Input validation
         if not isinstance(x, torch.Tensor):
             raise TypeError(f"Input x must be a torch.Tensor but got {type(x)}")
 
         if x.dtype not in (torch.float16, torch.float32, torch.float64):
             raise TypeError("Input tensor x must be a floating-point type")
 
-        # Replace NaNs with 0 using torch.nan_to_num
+        # Replace NaNs with 0.0 using PyTorch's built-in function
+        # This is more efficient than manual masking for this simple operation
         x_zeroed = torch.nan_to_num(x, nan=0.0)
 
         return x_zeroed
@@ -122,32 +186,67 @@ class NanIgnorer(nn.Module):
 
 class MetadataEncoder(nn.Module):
     """
-    Encodes DICOM metadata vectors into a compact, dense embedding suitable for fusion with image features.
-
-    This module applies a two-layer fully connected neural network with ReLU activations to transform
-    high-dimensional metadata inputs into a lower-dimensional embedding space.
-
+    DICOM Metadata Encoder with Imputation and Multi-Layer Projection.
+    
+    This is the main encoder for tabular DICOM metadata in the IMC architecture. It handles
+    missing values and transforms high-dimensional metadata into a compact embedding suitable
+    for fusion with image features.
+    
+    Architecture Overview:
+        1. Imputation: Handle missing values (NaNs) using either:
+           - ContextualImputer: Learnable neural network-based imputation
+           - NanIgnorer: Simple replacement with zeros
+        2. Projection: Two-layer MLP with residual connection
+           - First layer: input_dim -> hidden_dim with LayerNorm + ReLU + Dropout
+           - Second layer: hidden_dim -> embed_dim with LayerNorm + ReLU + Dropout
+           - Residual connection from input directly to output
+        3. Reduction: Optional aggregation over sequence dimension (mean or max)
+    
+    The residual connection allows the network to learn both:
+    - Complex transformations (through the MLP path)
+    - Simple linear projections (through the residual path)
+    
+    This is particularly important for medical metadata where some features may
+    benefit from complex processing while others are better preserved directly.
+    
     Args:
-        input_dim (int): Dimensionality of the input metadata vector.
-        embed_dim (int, optional): Desired dimensionality of the output embedding. Default is 128.
-        dropout (float, optional): Dropout rate
-        imputer (str, optional): Type of imputer to use. One of ['contextual', 'ignore'].
-                                 'contextual' uses a learnable imputer for NaNs.
-                                 'ignore' replaces NaNs with 0.
-                                 Default: 'contextual'.
-        reduce (str, optional): Reduction method if input has multiple entries per sample. One of ['mean', 'max', 'none'].
-                                Default: 'mean'.
+        input_dim (int): Dimensionality of the input metadata vector (number of features).
+        embed_dim (int, optional): Desired dimensionality of the output embedding. Default: 128.
+        dropout (float, optional): Dropout probability for regularization. Applied after
+            each layer to prevent overfitting. Default: 0.1.
+        imputer (str, optional): Type of imputation strategy. Options:
+            - 'contextual': Uses ContextualImputer (learned, context-aware imputation)
+            - 'ignore': Uses NanIgnorer (simple zero-filling)
+            Default: 'contextual'.
+        reduce (str, optional): Reduction method for multi-slice inputs. Options:
+            - 'mean': Average pooling over sequence dimension
+            - 'max': Max pooling over sequence dimension
+            - 'none': No reduction, return full sequence
+            Default: 'mean'.
 
-    Inputs:
-        x (torch.Tensor): A tensor of shape (B, input_dim) representing the batch of metadata vectors.
+    Input Shape:
+        (batch_size, num_slices, input_dim) or (batch_size, input_dim)
+        NaNs indicate missing values.
 
-    Outputs:
-        torch.Tensor: A tensor of shape (B, embed_dim) representing the encoded metadata embeddings.
+    Output Shape:
+        - (batch_size, embed_dim) if reduce='mean' or 'max'
+        - (batch_size, num_slices, embed_dim) if reduce='none'
     """
 
     def __init__(self, input_dim: int, embed_dim: int = 128, dropout: float = 0.1, imputer: str = 'contextual', reduce: str = 'mean'):
+        """
+        Initialize the Metadata Encoder.
+        
+        Args:
+            input_dim (int): Dimensionality of the input metadata vector.
+            embed_dim (int, optional): Output embedding dimension. Default: 128.
+            dropout (float, optional): Dropout probability. Default: 0.1.
+            imputer (str, optional): Imputation strategy ('contextual' or 'ignore'). Default: 'contextual'.
+            reduce (str, optional): Reduction method ('mean', 'max', or 'none'). Default: 'mean'.
+        """
         super().__init__()
 
+        # Select imputation strategy
         if imputer == 'contextual':
             self.imputer = ContextualImputer(input_dim, hidden_dim=input_dim)
         elif imputer == 'ignore':
@@ -155,8 +254,11 @@ class MetadataEncoder(nn.Module):
         else:
             raise ValueError(f"Unknown imputer type: {imputer}. Choose from 'contextual' or 'ignore'.")
 
+        # Calculate hidden dimension as midpoint between input and output
         hidden_dim = (embed_dim + input_dim) // 2
 
+        # Two-layer MLP with normalization and dropout
+        # This learns complex non-linear transformations of the metadata
         self.proj = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -168,22 +270,44 @@ class MetadataEncoder(nn.Module):
             nn.Dropout(dropout)
         )
 
+        # Residual connection: allows the model to learn identity mappings or simple projections
+        # This is particularly useful when some metadata features should pass through with
+        # minimal transformation
         self.residual = nn.Linear(input_dim, embed_dim)
+        
+        # Validate and store reduction method
         assert reduce in ['mean', 'max', 'none'], f"Unknown reduce method: {reduce}. Choose from 'mean', 'max', or 'none'."
         self.reduce = reduce
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Handle missing values
+        """
+        Forward pass to encode metadata.
+        
+        Args:
+            x (torch.Tensor): Input metadata tensor. Can be:
+                - (batch_size, input_dim): Single metadata vector per sample
+                - (batch_size, num_slices, input_dim): Multiple metadata vectors per sample
+                NaNs indicate missing values.
+        
+        Returns:
+            torch.Tensor: Encoded metadata embedding:
+                - (batch_size, embed_dim) if reduce='mean' or 'max'
+                - (batch_size, num_slices, embed_dim) if reduce='none'
+        """
+        # Step 1: Handle missing values through imputation
         x = self.imputer(x)
 
-        # Embed imputed vector
+        # Step 2: Embed the imputed vector using projection MLP + residual
+        # The residual connection helps preserve important input features
         x = self.residual(x) + self.proj(x)
 
-        # Reduce if needed
+        # Step 3: Optionally reduce over sequence dimension
         if self.reduce == 'mean':
-            x = x.mean(dim=1)
+            x = x.mean(dim=1)  # Average over slices
         elif self.reduce == 'max':
-            x, _ = x.max(dim=1)
+            x, _ = x.max(dim=1)  # Max over slices
+        # If reduce == 'none', return full sequence
+        
         return x
 
 
