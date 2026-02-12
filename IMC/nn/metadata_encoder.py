@@ -188,7 +188,7 @@ class MetadataEncoder(nn.Module):
     """
     DICOM Metadata Encoder with Imputation and Multi-Layer Projection.
     
-    This is the main encoder for tabular DICOM metadata in the IMC architecture. It handles
+    This is a dense encoder for tabular DICOM metadata. It handles
     missing values and transforms high-dimensional metadata into a compact embedding suitable
     for fusion with image features.
     
@@ -202,12 +202,6 @@ class MetadataEncoder(nn.Module):
            - Residual connection from input directly to output
         3. Reduction: Optional aggregation over sequence dimension (mean or max)
     
-    The residual connection allows the network to learn both:
-    - Complex transformations (through the MLP path)
-    - Simple linear projections (through the residual path)
-    
-    This is particularly important for medical metadata where some features may
-    benefit from complex processing while others are better preserved directly.
     
     Args:
         input_dim (int): Dimensionality of the input metadata vector (number of features).
@@ -273,7 +267,10 @@ class MetadataEncoder(nn.Module):
         # Residual connection: allows the model to learn identity mappings or simple projections
         # This is particularly useful when some metadata features should pass through with
         # minimal transformation
-        self.residual = nn.Linear(input_dim, embed_dim)
+        if input_dim == embed_dim:
+            self.residual = nn.Identity()
+        else:
+            self.residual = nn.Linear(input_dim, embed_dim)
         
         # Validate and store reduction method
         assert reduce in ['mean', 'max', 'none'], f"Unknown reduce method: {reduce}. Choose from 'mean', 'max', or 'none'."
