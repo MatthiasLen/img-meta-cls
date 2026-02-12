@@ -211,6 +211,7 @@ class MultiSliceImageEncoder(nn.Module):
                 else:
                     # For other channel counts: random initialization
                     init.xavier_uniform_(self.cnn[0].conv0.weight)
+                    
         elif self.backbone.startswith("resnet"):
             conv_layer = self.cnn[0]
             if conv_layer.in_channels != n_channels:
@@ -221,6 +222,9 @@ class MultiSliceImageEncoder(nn.Module):
                     self.cnn[0].weight.data = old_weights.mean(dim=1, keepdim=True)
                 else:
                     init.xavier_uniform_(self.cnn[0].weight)
+        else:
+            # TODO : 
+            print("WARNING: Currently selected backbone type not supported by _adapt_input_channels!")
         
     def get_feature_dimension(self) -> int:
         """
