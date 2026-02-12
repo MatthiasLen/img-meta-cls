@@ -310,7 +310,7 @@ class MultiSliceImageEncoder(nn.Module):
 
         # Some backbones (Swin, EfficientNet, DINOv3) require 3-channel input
         # Repeat the grayscale channel to create pseudo-RGB
-        if self.backbone not in ["densenet121", "densenet161", "densenet169", "densenet201", "resnet50"]:
+        if not self.backbone.startswith(("densenet", "resnet")):
             x = x.repeat(1, 3, 1, 1)  # (B*N, 3, H, W)
 
         # Pass through the CNN backbone to extract features
