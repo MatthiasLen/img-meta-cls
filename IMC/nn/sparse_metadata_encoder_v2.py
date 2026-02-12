@@ -68,10 +68,6 @@ class SparseMetadataEncoder(nn.Module):
         6. Extract CLS token output as aggregated representation
         7. Apply post-processing MLP
     
-    This approach is particularly effective when:
-    - Feature interactions are complex and benefit from self-attention
-    - The model needs to learn sophisticated patterns of missingness
-    - You have sufficient data to train the transformer layers
     """
 
     def __init__(
