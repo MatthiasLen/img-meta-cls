@@ -26,7 +26,7 @@ class FeedForward(nn.Module):
         x -> LN -> Linear -> GELU -> Dropout -> Linear -> Dropout -> + x
     """
 
-    def __init__(self, dim: int, expansion: int = 4, dropout: float = 0.1):
+    def __init__(self, dim: int, expansion: int, dropout: float = 0.1):
         super().__init__()
         hidden = dim * expansion
 
@@ -49,7 +49,7 @@ class MetadataSelfAttention(nn.Module):
     Pre-norm multi-head self-attention block with residual connection.
     """
 
-    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.1):
+    def __init__(self, dim: int, num_heads: int, dropout: float = 0.1):
         super().__init__()
         self.norm = nn.LayerNorm(dim)
         self.attn = nn.MultiheadAttention(
