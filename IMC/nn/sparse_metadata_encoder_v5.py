@@ -7,10 +7,10 @@ Key Changes
 - reworked FiLM generator
 - Self-attention block over features
 - Pre-norm transformer-style blocks
-- Controlled scaling
 - changed dropout placement
 - Deeper post network
 - Cleaner normalization ordering
+- Automatic selection of parameters
 
 """
 
@@ -75,9 +75,8 @@ class SparseMetadataEncoder(nn.Module):
         - Stabilized FiLM modulation
         - Multi-head self-attention across features
         - Transformer-style feedforward refinement
-        - Proper normalization and residual design
-
-    Designed for medical metadata fusion.
+        - Reworked normalization and residual design
+        
     """
 
     def __init__(
@@ -176,6 +175,8 @@ class SparseMetadataEncoder(nn.Module):
         # Each feature embedding is combined with its numeric value to predict scaling (alpha) and shifting (beta) factors.
         val_input = torch.cat([x_clean.unsqueeze(-1), feat_emb], dim=-1) # (B, S, F, embed_dim + 1)
         alpha_beta = self.value_mlp(val_input)
+        
+        assert alpha_beta.shape[-1] == 2 * self.embed_dim
         alpha, beta = alpha_beta.chunk(2, dim=-1)
 
         alpha = torch.tanh(alpha)  # stable scaling
@@ -187,10 +188,10 @@ class SparseMetadataEncoder(nn.Module):
         modulated = modulated * mask.unsqueeze(-1)
 
         # Flatten B,S for feature-level attention
-        modulated = modulated.view(B * S, F, self.embed_dim)
+        modulated = modulated.reshape(B * S, F, self.embed_dim)
 
         # True where feature is missing. Passed to attention to ignore padded features.
-        feature_mask = ~(mask.view(B * S, F))
+        feature_mask = ~(mask.reshape(B * S, F))
 
         # Self-attention blocks
         for attn, ff in self.blocks:
@@ -220,8 +221,9 @@ class SparseMetadataEncoder(nn.Module):
                 out
             )
 
-        # Optional Sequence Reduction
-        # (B, S, D) -> (B, D)
+        # Optional Sequence Reduction (B, S, D) -> (B, D)
+        # IMPORTANT: This averages across timesteps/slices including fully empty ones replaced with empty_token.
+        # If many such empty_token exist, they influence mean. Always check that this matches your modeling assumption.
         if self.reduce:
             return out.mean(dim=1)
 
