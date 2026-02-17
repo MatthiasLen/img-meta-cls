@@ -100,9 +100,9 @@ class SparseMetadataEncoder(nn.Module):
         # This we do not adress here and use a rather weak estimate based on num_features.
         # Can be investigated later.
         
-        # 1) embed_dim scales sublinearly ~ sqrt(num_features).
+        # 1) embed_dim scales sublinearly 
         # This is a VERY Heuristic choice and 
-        embed_dim = 32 + int(32 * round(math.sqrt(num_features) / 32))
+        embed_dim = 32 + int(32 * round(num_features**(7/10) / 32))
         embed_dim = max(64, min(embed_dim, 256))
     
         # 2) depth capped small
