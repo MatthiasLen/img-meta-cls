@@ -38,10 +38,8 @@ class FeedForward(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = self.norm(x)
         h = F.gelu(self.fc1(h))
-        h = self.dropout(h)
-        h = self.fc2(h)
-        h = self.dropout(h)
-        return x + h
+        h = F.gelu(self.fc2(h))
+        return x + self.dropout(h)
 
 
 class MetadataSelfAttention(nn.Module):
@@ -107,9 +105,7 @@ class SparseMetadataEncoder(nn.Module):
         embed_dim = max(64, min(embed_dim, 256))
     
         # 2) depth capped small
-        if num_features <= 32:
-            depth = 1
-        elif num_features <= 128:
+        if num_features <= 128:
             depth = 2
         else:
             depth = 3
@@ -123,12 +119,16 @@ class SparseMetadataEncoder(nn.Module):
         # ---------------------------------------------------------------------
         
         self.embed_dim = embed_dim
+        self.value_hidden_expansion = value_hidden_expansion
+        self.num_heads = num_heads
+        self.depth = depth
+        
         self.reduce = reduce
 
         # Feature identity embeddings
         self.index_embedding = nn.Embedding(num_features, embed_dim)
 
-        # Value → FiLM generator (improved capacity)
+        # estimate FiLM values 
         hidden_dim = embed_dim * value_hidden_expansion
 
         self.value_mlp = nn.Sequential(
@@ -144,7 +144,7 @@ class SparseMetadataEncoder(nn.Module):
         self.blocks = nn.ModuleList([
             nn.ModuleList([
                 MetadataSelfAttention(embed_dim, num_heads, dropout),
-                FeedForward(embed_dim, expansion=4, dropout=dropout),
+                FeedForward(embed_dim, expansion=value_hidden_expansion, dropout=dropout),
             ])
             for _ in range(depth)
         ])
@@ -156,30 +156,40 @@ class SparseMetadataEncoder(nn.Module):
         self.empty_token = nn.Parameter(torch.zeros(1, 1, out_dim))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # B = batch size, S = sequence length / number of slices, F = number of features
         B, S, F = x.shape
         device = x.device
 
+        # True where values are valid
         mask = ~torch.isnan(x)
-        x_clean = torch.nan_to_num(x, nan=0.0)
+        x_clean = torch.nan_to_num(x, nan=0.0) # (B, S, F)
 
         # Feature embeddings
         feat_ids = torch.arange(F, device=device)
-        feat_emb = self.index_embedding(feat_ids)
-        feat_emb = feat_emb.view(1, 1, F, self.embed_dim)
-        feat_emb = feat_emb.expand(B, S, F, self.embed_dim)
+        feat_emb = self.index_embedding(feat_ids) # (F, embed_dim)
 
-        # FiLM modulation
-        val_input = torch.cat([x_clean.unsqueeze(-1), feat_emb], dim=-1)
+        # Each feature at each timestep in each batch gets its feature embedding.
+        feat_emb = feat_emb.view(1, 1, F, self.embed_dim)
+        feat_emb = feat_emb.expand(B, S, F, self.embed_dim) # (B, S, F, embed_dim)
+
+        # Feature-wise Linear Modulation (FiLM) modulation
+        # Each feature embedding is combined with its numeric value to predict scaling (alpha) and shifting (beta) factors.
+        val_input = torch.cat([x_clean.unsqueeze(-1), feat_emb], dim=-1) # (B, S, F, embed_dim + 1)
         alpha_beta = self.value_mlp(val_input)
         alpha, beta = alpha_beta.chunk(2, dim=-1)
 
         alpha = torch.tanh(alpha)  # stable scaling
 
+        # So now each feature embedding is adjusted based on its numeric value and context
         modulated = feat_emb * (1 + alpha) + beta
+
+        # If a feature was originally NaN → its embedding becomes zero.
         modulated = modulated * mask.unsqueeze(-1)
 
         # Flatten B,S for feature-level attention
         modulated = modulated.view(B * S, F, self.embed_dim)
+
+        # True where feature is missing. Passed to attention to ignore padded features.
         feature_mask = ~(mask.view(B * S, F))
 
         # Self-attention blocks
@@ -187,16 +197,21 @@ class SparseMetadataEncoder(nn.Module):
             modulated = attn(modulated, key_padding_mask=feature_mask)
             modulated = ff(modulated)
 
-        # Masked mean pooling
+        # Masked mean pooling to collapse features into a single vector per sequence / slice.
+        
+        # Count valid features
         valid_counts = (~feature_mask).sum(dim=1).clamp(min=1).unsqueeze(-1)
+
+        # Sum only valid features. Missing features contribute 0.
         pooled = modulated.masked_fill(feature_mask.unsqueeze(-1), 0.0).sum(dim=1)
-        pooled = pooled / valid_counts
+        pooled = pooled / valid_counts # (B*S, embed_dim)
 
         pooled = self.final_norm(pooled)
-        out = self.out_proj(pooled)
-        out = out.view(B, S, -1)
+        out = self.out_proj(pooled) 
+        out = out.view(B, S, -1) # (B, S, output_dim)
 
         # Handle fully empty cases
+        # Replace output with a learned empty_token. This prevents garbage output when no data exists.
         empty_mask = (mask.sum(dim=2) == 0)
         if empty_mask.any():
             out = torch.where(
@@ -205,6 +220,8 @@ class SparseMetadataEncoder(nn.Module):
                 out
             )
 
+        # Optional Sequence Reduction
+        # (B, S, D) -> (B, D)
         if self.reduce:
             return out.mean(dim=1)
 
