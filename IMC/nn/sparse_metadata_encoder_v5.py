@@ -1,0 +1,184 @@
+"""
+Version 5
+Date: 2026-02-17
+
+Key Changes
+
+- reworked FiLM generator
+- Self-attention block over features
+- Pre-norm transformer-style blocks
+- Controlled scaling
+- changed dropout placement
+- Deeper post network
+- Cleaner normalization ordering
+
+"""
+
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class FeedForward(nn.Module):
+    """
+    Transformer-style feedforward block:
+        x -> LN -> Linear -> GELU -> Dropout -> Linear -> Dropout -> + x
+    """
+
+    def __init__(self, dim: int, expansion: int = 4, dropout: float = 0.1):
+        super().__init__()
+        hidden = dim * expansion
+
+        self.norm = nn.LayerNorm(dim)
+        self.fc1 = nn.Linear(dim, hidden)
+        self.fc2 = nn.Linear(hidden, dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.norm(x)
+        h = F.gelu(self.fc1(h))
+        h = self.dropout(h)
+        h = self.fc2(h)
+        h = self.dropout(h)
+        return x + h
+
+
+class MetadataSelfAttention(nn.Module):
+    """
+    Pre-norm multi-head self-attention block with residual connection.
+    """
+
+    def __init__(self, dim: int, num_heads: int = 4, dropout: float = 0.1):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim)
+        self.attn = nn.MultiheadAttention(
+            embed_dim=dim,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True
+        )
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor, key_padding_mask=None):
+        h = self.norm(x)
+        h, _ = self.attn(
+            h, h, h,
+            key_padding_mask=key_padding_mask,
+            need_weights=False
+        )
+        return x + self.dropout(h)
+
+
+class SparseMetadataEncoder(nn.Module):
+    """
+    Advanced sparse metadata encoder using:
+
+        - Stabilized FiLM modulation
+        - Multi-head self-attention across features
+        - Transformer-style feedforward refinement
+        - Proper normalization and residual design
+
+    Designed for medical metadata fusion.
+    """
+
+    def __init__(
+        self,
+        num_features: int,
+        embed_dim: int = 128,
+        value_hidden_expansion: int = 2,
+        num_heads: int = 4,
+        depth: int = 2,
+        out_dim: int = 256,
+        dropout: float = 0.1,
+        reduce: bool = True,
+    ):
+        super().__init__()
+
+        self.embed_dim = embed_dim
+        self.reduce = reduce
+
+        # Feature identity embeddings
+        self.index_embedding = nn.Embedding(num_features, embed_dim)
+
+        # Value → FiLM generator (improved capacity)
+        hidden_dim = embed_dim * value_hidden_expansion
+
+        self.value_mlp = nn.Sequential(
+            nn.LayerNorm(embed_dim + 1),
+            nn.Linear(embed_dim + 1, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, embed_dim * 2),
+        )
+
+        # Transformer blocks over feature set
+        self.blocks = nn.ModuleList([
+            nn.ModuleList([
+                MetadataSelfAttention(embed_dim, num_heads, dropout),
+                FeedForward(embed_dim, expansion=4, dropout=dropout),
+            ])
+            for _ in range(depth)
+        ])
+
+        # Final projection
+        self.final_norm = nn.LayerNorm(embed_dim)
+        self.out_proj = nn.Linear(embed_dim, out_dim)
+
+        self.empty_token = nn.Parameter(torch.zeros(1, 1, out_dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, S, F = x.shape
+        device = x.device
+
+        mask = ~torch.isnan(x)
+        x_clean = torch.nan_to_num(x, nan=0.0)
+
+        # Feature embeddings
+        feat_ids = torch.arange(F, device=device)
+        feat_emb = self.index_embedding(feat_ids)
+        feat_emb = feat_emb.view(1, 1, F, self.embed_dim)
+        feat_emb = feat_emb.expand(B, S, F, self.embed_dim)
+
+        # FiLM modulation
+        val_input = torch.cat([x_clean.unsqueeze(-1), feat_emb], dim=-1)
+        alpha_beta = self.value_mlp(val_input)
+        alpha, beta = alpha_beta.chunk(2, dim=-1)
+
+        alpha = torch.tanh(alpha)  # stable scaling
+
+        modulated = feat_emb * (1 + alpha) + beta
+        modulated = modulated * mask.unsqueeze(-1)
+
+        # Flatten B,S for feature-level attention
+        modulated = modulated.view(B * S, F, self.embed_dim)
+        feature_mask = ~(mask.view(B * S, F))
+
+        # Self-attention blocks
+        for attn, ff in self.blocks:
+            modulated = attn(modulated, key_padding_mask=feature_mask)
+            modulated = ff(modulated)
+
+        # Masked mean pooling
+        valid_counts = (~feature_mask).sum(dim=1).clamp(min=1).unsqueeze(-1)
+        pooled = modulated.masked_fill(feature_mask.unsqueeze(-1), 0.0).sum(dim=1)
+        pooled = pooled / valid_counts
+
+        pooled = self.final_norm(pooled)
+        out = self.out_proj(pooled)
+        out = out.view(B, S, -1)
+
+        # Handle fully empty cases
+        empty_mask = (mask.sum(dim=2) == 0)
+        if empty_mask.any():
+            out = torch.where(
+                empty_mask.unsqueeze(-1),
+                self.empty_token.expand(B, S, -1),
+                out
+            )
+
+        if self.reduce:
+            return out.mean(dim=1)
+
+        return out
