@@ -85,16 +85,38 @@ class SparseMetadataEncoder(nn.Module):
     def __init__(
         self,
         num_features: int,
-        embed_dim: int = 128,
-        value_hidden_expansion: int = 2,
-        num_heads: int = 4,
-        depth: int = 2,
-        out_dim: int = 256,
+        # embed_dim: int = 128,
+        # value_hidden_expansion: int = 2,
+        # num_heads: int = 4,
+        # depth: int = 2,
+        out_dim: int = 256, # e.g. out_dim =  image_feature_dim or  out_dim = image_feature_dim // 2
         dropout: float = 0.1,
         reduce: bool = True,
     ):
         super().__init__()
 
+        # --- auto scaling hyperparameters
+        
+        # 1) embed_dim scales sublinearly
+        embed_dim = int(32 * round(math.sqrt(num_features) / 32))
+        embed_dim = max(64, min(embed_dim, 256))
+    
+        # 2) depth capped small
+        if num_features <= 32:
+            depth = 1
+        elif num_features <= 128:
+            depth = 2
+        else:
+            depth = 3
+    
+        # 3) heads ~ 32-dim per head
+        num_heads = max(2, min(embed_dim // 32, 8))
+    
+        # 4) value expansion modest
+        value_hidden_expansion = 2 if num_features < 64 else 3
+
+        # --- auto scaling
+        
         self.embed_dim = embed_dim
         self.reduce = reduce
 
