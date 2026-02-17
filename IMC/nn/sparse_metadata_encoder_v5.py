@@ -95,7 +95,12 @@ class SparseMetadataEncoder(nn.Module):
     ):
         super().__init__()
 
-        # --- auto scaling hyperparameters
+        # Auto scaling hyperparameters.
+        # 
+        # IMPORTANT: Assumptions of these scaling laws will require some experimentation.
+        # The true driver for selecting network capacity ENTROPY of the metadata.
+        # This we do not adress here and use a rather weak estimate based on num_features.
+        # Can be investigated later.
         
         # 1) embed_dim scales sublinearly
         embed_dim = int(32 * round(math.sqrt(num_features) / 32))
@@ -111,11 +116,11 @@ class SparseMetadataEncoder(nn.Module):
     
         # 3) heads ~ 32-dim per head
         num_heads = max(2, min(embed_dim // 32, 8))
-    
+        
         # 4) value expansion modest
         value_hidden_expansion = 2 if num_features < 64 else 3
 
-        # --- auto scaling
+        # ---------------------------------------------------------------------
         
         self.embed_dim = embed_dim
         self.reduce = reduce
