@@ -5,6 +5,7 @@ Date: 2026-02-17
 Key Changes
 
 - reworked FiLM generator
+- stable scaling with alpha value 
 - Self-attention block over features
 - Pre-norm transformer-style blocks
 - changed dropout placement
