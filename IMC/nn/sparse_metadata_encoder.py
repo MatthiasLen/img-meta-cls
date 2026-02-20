@@ -171,7 +171,6 @@ class SparseMetadataEncoder(nn.Module):
         # Returns (N, 2) where N is number of OBSERVED (non NaN) values
         # Each row is [sample_index, feature_index]
         idxs = torch.nonzero(mask, as_tuple=False)
-        print("!!!", idxs.shape)
         
         # Edge case: if no features are observed in the entire batch, return zero embedding
         if idxs.numel() == 0:
@@ -259,5 +258,10 @@ if __name__ == "__main__":
     z = encoder(x)
 
     print("\n\nEncoder output:")
+<<<<<<< HEAD
     #print(z)
     print("output shape:", z.shape) 
+=======
+    print(z)
+    print("output shape:", z.shape) 
+>>>>>>> 52dc01a32045eb4021a9602029a75edbe7f82e62

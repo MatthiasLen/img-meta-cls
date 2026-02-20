@@ -39,7 +39,8 @@ class FeedForward(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = self.norm(x)
         h = func.gelu(self.fc1(h))
-        h = func.gelu(self.fc2(h))
+        h = self.dropout(h)
+        h = self.fc2(h)
         return x + self.dropout(h)
 
 
@@ -219,7 +220,6 @@ class SparseMetadataEncoder(nn.Module):
         empty_mask = (mask.sum(dim=2) == 0) # (B, S)
         
         if empty_mask.any():
-            tmp = out
             out = torch.where(
                 empty_mask.unsqueeze(-1),
                 self.empty_token.expand(B, S, -1),
