@@ -160,14 +160,18 @@ class SparseMetadataEncoder(nn.Module):
         device = x.device
         
         B, S, F = x.shape
+        
         # Flatten batch and sequence dimensions for processing
-        x_flat = x.view(B*S, F)        
+        x_flat = x.view(B*S, F) # (B*S, F) 
 
         # Create mask of observed (non-NaN) entries
-        mask = ~torch.isnan(x_flat)
-        # Get indices of all non-NaN values: returns (N, 2) where N is number of observed values
+        mask = ~torch.isnan(x_flat) # (B*S, F)
+        
+        # Get indices of all non-NaN values: 
+        # Returns (N, 2) where N is number of OBSERVED (non NaN) values
         # Each row is [sample_index, feature_index]
         idxs = torch.nonzero(mask, as_tuple=False)
+        print("!!!", idxs.shape)
         
         # Edge case: if no features are observed in the entire batch, return zero embedding
         if idxs.numel() == 0:
@@ -176,7 +180,8 @@ class SparseMetadataEncoder(nn.Module):
         # Extract sample and feature indices for all observed values
         sample_idx = idxs[:, 0] # (N,), values in [0, B*S) indicating which sample
         feat_idx = idxs[:, 1]   # (N,), values in [0, F) indicating which feature
-        # Extract the actual observed values and add dimension for MLP input
+        
+        # Extract the actual observed values from x_flat and add dimension for MLP input
         vals = x_flat[sample_idx, feat_idx].unsqueeze(1)  # (N, 1)
         
         # Optional: Apply learnable per-feature normalization
@@ -201,17 +206,22 @@ class SparseMetadataEncoder(nn.Module):
         # Contextualize the numeric value with its feature embedding
         # The feature embedding provides semantic context for interpreting the numeric value
         val_input = torch.cat([vals, idx_emb], dim=1)  # (N, 1 + index_embed_dim)
+        print("!!!!", val_input.shape)
+        
         # Predict FiLM parameters (alpha for scaling, beta for shifting)
         val_params = self.value_mlp(val_input) # (N, 2 * index_embed_dim)
+        print("!!!!", val_params.shape)
         
         # Split into alpha (scale) and beta (shift) parameters
-        alpha, beta = val_params.chunk(2, dim=1)       # each (N, index_embed_dim)
+        alpha, beta = val_params.chunk(2, dim=1)       # 2 * (N, index_embed_dim)
+        
         # Apply FiLM modulation: slight residual scaling and shifting
         modulated_feat = idx_emb * (1 + alpha) + beta  # (N, index_embed_dim)
+        print("!!!!", modulated_feat.shape)
         
         # Aggregate modulated features per sample using scatter-add
-        out_dim = idx_emb.shape[1]
-        agg = torch.zeros(B*S, out_dim, device=device)
+        agg_dim = idx_emb.shape[1]
+        agg = torch.zeros(B*S, agg_dim, device=device)
         # Sum all modulated features belonging to the same sample
         agg = agg.index_add(0, sample_idx, modulated_feat)
 
@@ -237,7 +247,7 @@ if __name__ == "__main__":
     x[:,:, F//2] = 0.0 
 
     print("Input tensor:")
-    print(x)
+    #print(x)
     print(x.shape)
     
     encoder = SparseMetadataEncoder(num_features=F, out_dim=128)
@@ -249,5 +259,5 @@ if __name__ == "__main__":
     z = encoder(x)
 
     print("\n\nEncoder output:")
-    print(z)
+    #print(z)
     print("output shape:", z.shape) 
