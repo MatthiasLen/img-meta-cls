@@ -210,8 +210,8 @@ class SparseMetadataEncoder(nn.Module):
         modulated_feat = idx_emb * (1 + alpha) + beta  # (N, index_embed_dim)
         
         # Aggregate modulated features per sample using scatter-add
-        out_dim = idx_emb.shape[1]
-        agg = torch.zeros(B*S, out_dim, device=device)
+        agg_dim = idx_emb.shape[1]
+        agg = torch.zeros(B*S, agg_dim, device=device)
         # Sum all modulated features belonging to the same sample
         agg = agg.index_add(0, sample_idx, modulated_feat)
 
