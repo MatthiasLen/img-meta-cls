@@ -78,7 +78,8 @@ class SparseMetadataEncoder(nn.Module):
         aggregation: str = "mean",
         learnable_norm: bool = False,
         p_post_dropout : float = 0.05,
-        reduce: bool = True
+        reduce: bool = True,
+        scalar_modulation : bool = False
     ):
         """
         Initialize the Sparse Metadata Encoder.
@@ -100,19 +101,24 @@ class SparseMetadataEncoder(nn.Module):
             reduce (bool, optional): If True, applies mean pooling over the sequence dimension
                 to produce a single vector per batch. If False, returns one vector per sequence
                 position. Default: True.
+            scalar_modulation (bool, optional) : If True use scalar instead of vector alpha and
+                beta modulation parameter. Default: False.
         """
         super().__init__()
 
         self.out_dim = out_dim
+        self.scalar_modulation = scalar_modulation
+        
         # Learnable embedding for each feature index
         self.index_emb = nn.Embedding(num_features, index_embed_dim)
-
+        
         # Value MLP: Maps scalar feature value contextualized by feature embedding to FiLM parameters
-        # Input: [value (1D), feature_embedding (index_embed_dim)] -> Output: [alpha, beta] (2 * index_embed_dim)
+        # Input: [value (1D), feature_embedding (index_embed_dim)] -> Output: [alpha, beta]
+        value_mlp_out_dim = index_embed_dim * 2 if scalar_modulation else 2
         self.value_mlp = nn.Sequential(
             nn.Linear(1 + index_embed_dim, value_mlp_dim),
             nn.GELU(),
-            nn.Linear(value_mlp_dim, index_embed_dim * 2) # FiLM params: alpha and beta
+            nn.Linear(value_mlp_dim, value_mlp_out_dim) # FiLM params: alpha and beta
         )
 
         # Post-processing network: Refines aggregated features and projects to output dimension
@@ -139,6 +145,7 @@ class SparseMetadataEncoder(nn.Module):
             self.register_parameter("value_shift", None)
 
         self.reduce = reduce
+        
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -246,7 +253,7 @@ if __name__ == "__main__":
     print("Input tensor:")
     print(x.shape)
     
-    encoder = SparseMetadataEncoder(num_features=F, out_dim=128)
+    encoder = SparseMetadataEncoder(num_features=F, out_dim=128, scalar_modulation=True)
 
     total_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
     print(f'Total trainable parameters: {total_params}')
