@@ -87,7 +87,7 @@ class SparseMetadataEncoder(nn.Module):
         # value_hidden_expansion: int = 2,
         # num_heads: int = 4,
         # depth: int = 2,
-        out_dim: int = 256, # e.g. out_dim =  image_feature_dim or  out_dim = image_feature_dim // 2
+        out_dim: int = 128, # e.g. out_dim =  image_feature_dim or  out_dim = image_feature_dim // 2
         dropout: float = 0.1,
         reduce: bool = True,
     ):
