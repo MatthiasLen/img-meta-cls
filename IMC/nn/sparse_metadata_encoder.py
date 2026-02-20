@@ -36,6 +36,27 @@ class ResidualMLP(nn.Module):
         h = self.lin2(h)
         return self.norm(x + h)
 
+
+class ValueNetwork(nn.Module):
+    """
+        Value MLP: Maps scalar feature value contextualized by feature embedding to FiLM parameters
+        Input: [value (1D), feature_embedding (index_embed_dim)]
+        Output: [alpha, beta]
+    """
+    def __init__(self, index_embed_dim : int, value_mlp_dim : int, scalar_modulation: bool = False):
+        super().__init__()
+        value_mlp_out_dim = 2 if scalar_modulation else (2 * index_embed_dim)
+        print("Value Network output dim:", value_mlp_out_dim)
+        
+        self.lin1 = nn.Linear(1 + index_embed_dim, value_mlp_dim)
+        self.lin2 = nn.Linear(value_mlp_dim, value_mlp_out_dim) 
+        
+    def forward(self, x):
+        h = torch.nn.functional.gelu(self.lin1(x))
+        h = self.lin2(h)
+        return h
+        
+
 class SparseMetadataEncoder(nn.Module):
     """
     Sparse Metadata Encoder with Feature-wise Linear Modulation (FiLM).
@@ -114,11 +135,18 @@ class SparseMetadataEncoder(nn.Module):
         
         # Value MLP: Maps scalar feature value contextualized by feature embedding to FiLM parameters
         # Input: [value (1D), feature_embedding (index_embed_dim)] -> Output: [alpha, beta]
-        value_mlp_out_dim = index_embed_dim * 2 if scalar_modulation else 2
-        self.value_mlp = nn.Sequential(
-            nn.Linear(1 + index_embed_dim, value_mlp_dim),
-            nn.GELU(),
-            nn.Linear(value_mlp_dim, value_mlp_out_dim) # FiLM params: alpha and beta
+        
+        #value_mlp_out_dim = index_embed_dim * 2 if scalar_modulation else 2
+        #self.value_mlp = nn.Sequential(
+        #    nn.Linear(1 + index_embed_dim, value_mlp_dim),
+        #    nn.GELU(),
+        #    nn.Linear(value_mlp_dim, value_mlp_out_dim) # FiLM params: alpha and beta
+        #)
+
+        self.value_mlp = ValueNetwork(
+            index_embed_dim = index_embed_dim,
+            value_mlp_dim = value_mlp_dim, 
+            scalar_modulation = scalar_modulation
         )
 
         # Post-processing network: Refines aggregated features and projects to output dimension
@@ -215,9 +243,11 @@ class SparseMetadataEncoder(nn.Module):
         
         # Predict FiLM parameters (alpha for scaling, beta for shifting)
         val_params = self.value_mlp(val_input) # (N, 2 * index_embed_dim)
+        print(val_params.shape)
         
         # Split into alpha (scale) and beta (shift) parameters
         alpha, beta = val_params.chunk(2, dim=1)       # 2 * (N, index_embed_dim)
+        print(alpha.shape, beta.shape)
         
         # Apply FiLM modulation: slight residual scaling and shifting
         modulated_feat = idx_emb * (1 + alpha) + beta  # (N, index_embed_dim)
@@ -253,7 +283,7 @@ if __name__ == "__main__":
     print("Input tensor:")
     print(x.shape)
     
-    encoder = SparseMetadataEncoder(num_features=F, out_dim=128, scalar_modulation=True)
+    encoder = SparseMetadataEncoder(num_features=F, out_dim=128, scalar_modulation=False)
 
     total_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
     print(f'Total trainable parameters: {total_params}')
