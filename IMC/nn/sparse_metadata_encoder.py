@@ -205,29 +205,27 @@ class SparseMetadataEncoder(nn.Module):
         # Contextualize the numeric value with its feature embedding
         # The feature embedding provides semantic context for interpreting the numeric value
         val_input = torch.cat([vals, idx_emb], dim=1)  # (N, 1 + index_embed_dim)
-        print("!!!!", val_input.shape)
         
         # Predict FiLM parameters (alpha for scaling, beta for shifting)
         val_params = self.value_mlp(val_input) # (N, 2 * index_embed_dim)
-        print("!!!!", val_params.shape)
         
         # Split into alpha (scale) and beta (shift) parameters
         alpha, beta = val_params.chunk(2, dim=1)       # 2 * (N, index_embed_dim)
         
         # Apply FiLM modulation: slight residual scaling and shifting
         modulated_feat = idx_emb * (1 + alpha) + beta  # (N, index_embed_dim)
-        print("!!!!", modulated_feat.shape)
         
         # Aggregate modulated features per sample using scatter-add
         agg_dim = idx_emb.shape[1]
-        agg = torch.zeros(B*S, agg_dim, device=device)
+        agg = torch.zeros(B*S, agg_dim, device=device) #(B*S, index_embed_dim) 
+        
         # Sum all modulated features belonging to the same sample
         agg = agg.index_add(0, sample_idx, modulated_feat)
 
         # For mean aggregation, normalize by count of observed features per sample
         if self.aggregation == "mean":
             # Count non-NaN features per sample, clamp to avoid division by zero
-            counts = mask.sum(dim=1).clamp(min=1).float().unsqueeze(1)
+            counts = mask.sum(dim=1).clamp(min=1).float().unsqueeze(1) # (B*S, 1) 
             agg = agg / counts
 
         # Apply post-processing network to refine and project to output dimension
@@ -246,7 +244,6 @@ if __name__ == "__main__":
     x[:,:, F//2] = 0.0 
 
     print("Input tensor:")
-    #print(x)
     print(x.shape)
     
     encoder = SparseMetadataEncoder(num_features=F, out_dim=128)
