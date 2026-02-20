@@ -18,7 +18,7 @@ Key Changes
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.nn.functional as func
 
 
 class FeedForward(nn.Module):
@@ -38,8 +38,8 @@ class FeedForward(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         h = self.norm(x)
-        h = F.gelu(self.fc1(h))
-        h = F.gelu(self.fc2(h))
+        h = func.gelu(self.fc1(h))
+        h = func.gelu(self.fc2(h))
         return x + self.dropout(h)
 
 
@@ -117,21 +117,25 @@ class SparseMetadataEncoder(nn.Module):
         # 4) value expansion modest
         value_hidden_expansion = 2 if num_features < 64 else 3
 
+        # 5) FiLM hidden dim
+        hidden_dim = embed_dim * value_hidden_expansion
+
+        print("Selected parameters:")
+        print(f"embed_dim  = {embed_dim}")
+        print(f"depth      = {depth}")
+        print(f"num_heads  = {num_heads}")
+        print(f"hidden_dim = {hidden_dim}")
+
         # ---------------------------------------------------------------------
         
         self.embed_dim = embed_dim
-        self.value_hidden_expansion = value_hidden_expansion
-        self.num_heads = num_heads
-        self.depth = depth
-        
         self.reduce = reduce
+        self.out_dim = out_dim
 
         # Feature identity embeddings
         self.index_embedding = nn.Embedding(num_features, embed_dim)
 
         # estimate FiLM values 
-        hidden_dim = embed_dim * value_hidden_expansion
-
         self.value_mlp = nn.Sequential(
             nn.LayerNorm(embed_dim + 1),
             nn.Linear(embed_dim + 1, hidden_dim),
@@ -162,7 +166,7 @@ class SparseMetadataEncoder(nn.Module):
         device = x.device
 
         # True where values are valid
-        mask = ~torch.isnan(x)
+        mask = ~torch.isnan(x)  # (B, S, F)        
         x_clean = torch.nan_to_num(x, nan=0.0) # (B, S, F)
 
         # Feature embeddings
@@ -174,26 +178,26 @@ class SparseMetadataEncoder(nn.Module):
         feat_emb = feat_emb.expand(B, S, F, self.embed_dim) # (B, S, F, embed_dim)
 
         # Feature-wise Linear Modulation (FiLM) modulation
-        # Each feature embedding is combined with its numeric value to predict scaling (alpha) and shifting (beta) factors.
-        val_input = torch.cat([x_clean.unsqueeze(-1), feat_emb], dim=-1) # (B, S, F, embed_dim + 1)
-        alpha_beta = self.value_mlp(val_input)
+        # Each feature embedding is combined with its numeric value to predict 
+        # scaling (alpha) and shifting (beta) factors.
+        val_input = torch.cat([x_clean.unsqueeze(-1), feat_emb], dim=-1) # (B, S, F, embed_dim + 1)        
+        alpha_beta = self.value_mlp(val_input) # (B, S, F, 2*embed_dim)
         
         assert alpha_beta.shape[-1] == 2 * self.embed_dim
-        alpha, beta = alpha_beta.chunk(2, dim=-1)
-
+        alpha, beta = alpha_beta.chunk(2, dim=-1) # 2* (B, S, F, embed_dim)
         alpha = torch.tanh(alpha)  # stable scaling
 
         # So now each feature embedding is adjusted based on its numeric value and context
-        modulated = feat_emb * (1 + alpha) + beta
+        modulated = feat_emb * (1 + alpha) + beta # (B, S, F, embed_dim)
 
         # If a feature was originally NaN → its embedding becomes zero.
-        modulated = modulated * mask.unsqueeze(-1)
+        modulated = modulated * mask.unsqueeze(-1) # (B, S, F, embed_dim)
 
         # Flatten B,S for feature-level attention
-        modulated = modulated.reshape(B * S, F, self.embed_dim)
-
+        modulated = modulated.reshape(B * S, F, self.embed_dim) # (B*S, F, embed_dim)
+ 
         # True where feature is missing. Passed to attention to ignore padded features.
-        feature_mask = ~(mask.reshape(B * S, F))
+        feature_mask = ~(mask.reshape(B * S, F)) # (B*S, F)
 
         # Self-attention blocks
         for attn, ff in self.blocks:
@@ -203,30 +207,53 @@ class SparseMetadataEncoder(nn.Module):
         # Masked mean pooling to collapse features into a single vector per sequence / slice.
         
         # Count valid features
-        valid_counts = (~feature_mask).sum(dim=1).clamp(min=1).unsqueeze(-1)
-
+        valid_counts = (~feature_mask).sum(dim=1).clamp(min=1).unsqueeze(-1) # (B*S, 1)
+        
         # Sum only valid features. Missing features contribute 0.
-        pooled = modulated.masked_fill(feature_mask.unsqueeze(-1), 0.0).sum(dim=1)
-        pooled = pooled / valid_counts # (B*S, embed_dim)
+        pooled = modulated.masked_fill(feature_mask.unsqueeze(-1), 0.0)  # (B*S, F, embed_dim)
+        pooled = pooled.sum(dim=1) / valid_counts # (B*S, embed_dim)
 
         pooled = self.final_norm(pooled)
         out = self.out_proj(pooled) 
-        out = out.view(B, S, -1) # (B, S, output_dim)
+        out = out.view(B, S, self.out_dim) # (B, S, output_dim)
 
-        # Handle fully empty cases
-        # Replace output with a learned empty_token. This prevents garbage output when no data exists.
-        empty_mask = (mask.sum(dim=2) == 0)
+        # Handle slices with fully empty meta data.
+        # Replace output with a learned empty_token.
+        empty_mask = (mask.sum(dim=2) == 0) # (B, S)
+        
         if empty_mask.any():
+            tmp = out
             out = torch.where(
                 empty_mask.unsqueeze(-1),
                 self.empty_token.expand(B, S, -1),
                 out
             )
 
-        # Optional Sequence Reduction (B, S, D) -> (B, D)
+        # Optional Sequence Reduction (B, S, output_dim) -> (B, output_dim)
         # IMPORTANT: This averages across timesteps/slices including fully empty ones replaced with empty_token.
         # If many such empty_token exist, they influence mean. Always check that this matches your modeling assumption.
         if self.reduce:
-            return out.mean(dim=1)
+            return out.mean(dim=1) #  (B, output_dim)
 
         return out
+
+
+if __name__ == "__main__":
+    B, S, F = 4, 8, 10
+    x = torch.randn(B, S, F)
+    x[torch.rand_like(x) < 0.5] = float('nan')  # 50% missing
+    x[:,:, F//2] = 0.0 
+    x[1,3,:] = float('nan')
+
+    print("Input tensor:")
+    print(x.shape)
+    
+    encoder = SparseMetadataEncoder(num_features=F, out_dim=128)
+
+    total_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
+    print(f'Total trainable parameters: {total_params}')
+
+    z = encoder(x)
+
+    print("\n\nEncoder output:")
+    print("output shape:", z.shape) 

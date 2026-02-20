@@ -241,6 +241,11 @@ if __name__ == "__main__":
     print(x.shape)
     
     encoder = SparseMetadataEncoder(num_features=F, out_dim=128)
+
+    total_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
+    print(f'Total trainable parameters: {total_params}')
+
+
     z = encoder(x)
 
     print("\n\nEncoder output:")
