@@ -254,14 +254,7 @@ if __name__ == "__main__":
     total_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
     print(f'Total trainable parameters: {total_params}')
 
-
     z = encoder(x)
 
     print("\n\nEncoder output:")
-<<<<<<< HEAD
-    #print(z)
     print("output shape:", z.shape) 
-=======
-    print(z)
-    print("output shape:", z.shape) 
->>>>>>> 52dc01a32045eb4021a9602029a75edbe7f82e62
