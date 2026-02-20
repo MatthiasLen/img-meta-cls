@@ -1,12 +1,12 @@
 """
 Version 5
-Date: 2026-02-17
+Date: 2026-02-20
 
 Key Changes
 
 - reworked FiLM generator
 - stable scaling with alpha value 
-- Self-attention block over features
+- Self-attention blocks over modulated features T(X) := x + MHA(x)+ FF(x + MHA(x))
 - Pre-norm transformer-style blocks
 - changed dropout placement
 - Deeper post network
@@ -83,10 +83,6 @@ class SparseMetadataEncoder(nn.Module):
     def __init__(
         self,
         num_features: int,
-        # embed_dim: int = 128,
-        # value_hidden_expansion: int = 2,
-        # num_heads: int = 4,
-        # depth: int = 2,
         out_dim: int = 128, # e.g. out_dim =  image_feature_dim or  out_dim = image_feature_dim // 2
         dropout: float = 0.1,
         reduce: bool = True,
@@ -200,12 +196,13 @@ class SparseMetadataEncoder(nn.Module):
         feature_mask = ~(mask.reshape(B * S, F)) # (B*S, F)
 
         # Self-attention blocks
+        # Modulated features are (more or less) subjected to multiple tranformations 
+        # x -> x + MHA(x) + FF(x + MHA(x))
         for attn, ff in self.blocks:
             modulated = attn(modulated, key_padding_mask=feature_mask)
             modulated = ff(modulated)
 
         # Masked mean pooling to collapse features into a single vector per sequence / slice.
-        
         # Count valid features
         valid_counts = (~feature_mask).sum(dim=1).clamp(min=1).unsqueeze(-1) # (B*S, 1)
         
