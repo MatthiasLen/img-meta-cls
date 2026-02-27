@@ -55,8 +55,12 @@ from IMC.nn.image_encoder import MultiSliceImageEncoder
 from IMC.nn.metadata_encoder import MetadataEncoder
 from IMC.nn.sparse_metadata_encoder import SparseMetadataEncoder as SparseEncoderV1
 from IMC.nn.sparse_metadata_encoder_v2 import SparseMetadataEncoder as SparseEncoderV2
+from IMC.nn.sparse_metadata_encoder_v5 import SparseMetadataEncoder as SparseEncoderV5
 from IMC.nn.emb_metadata_encoder import FTTransformerLikeMetadataEncoder
 from IMC.nn.multi_task_head import MultiTaskHead
+
+from torchvision.models.densenet import DenseNet121_Weights
+from torchvision import models
 import logging 
 import os
 
@@ -351,6 +355,34 @@ class BiDirectionalCrossModalAttentionFusionV2(nn.Module):
         return output
 
 
+class SimpleConcatFusion(nn.Module):
+    """
+    Simple concatenation fusion of image and metadata features.
+
+    This is a baseline fusion method that just concatenates the image and metadata embeddings
+    and projects them to the output dimension. No attention or interaction between modalities.
+    """
+
+    def __init__(self, image_emb_dim: int, metadata_emb_dim: int, output_dim: int = 128, reduce: bool = True):
+        super().__init__()
+        self.reduce = reduce
+        self.output_proj = nn.Sequential(
+            nn.Linear(image_emb_dim + metadata_emb_dim, output_dim),
+            nn.LayerNorm(output_dim),
+            nn.GELU(),
+        )
+
+    def forward(self, img_feat: torch.Tensor, meta_feat: torch.Tensor):
+        # Concatenate image and metadata features
+        fused = torch.cat([img_feat, meta_feat], dim=2)  # (B, N, image_emb_dim + metadata_emb_dim)
+
+        # Project to output dimension
+        output = self.output_proj(fused)  # (B, N, output_dim)
+
+        # Average over the sequence dimension if needed (if fused is still a sequence)
+        if self.reduce:
+            output = output.mean(dim=1)  # (B, output_dim)
+        return output
 
 
 class MRISequenceClassifier(nn.Module):
@@ -394,6 +426,9 @@ class MRISequenceClassifier(nn.Module):
         self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone) 
         slice_feat_dim = self.image_encoder.get_feature_dimension()
 
+        # Check fusion module version
+        assert fusion_module_version in ["v1", "v2", "concat"], "fusion_module_version must be 'v1', 'v2', or 'concat'"
+
         if fusion_module_version == "v1":
             self.embedding_fusion = BiDirectionalCrossModalAttentionFusion(
                 image_emb_dim=fused_feat_dim,
@@ -405,13 +440,27 @@ class MRISequenceClassifier(nn.Module):
             )
 
             self.metadata_encoder = MetadataEncoder(
-                metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type, reduce='none'
+                metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type, reduce='mean'
             )
-        else:
+        elif fusion_module_version == "v2":
             self.embedding_fusion = BiDirectionalCrossModalAttentionFusionV2(
                 image_emb_dim=fused_feat_dim,
                 metadata_emb_dim=metadata_embed_dim,
                 output_dim=output_emb_dim,
+            )
+            self.slice_fusion = SliceFeatureFusion(
+                slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=False
+            )
+
+            self.metadata_encoder = MetadataEncoder(
+                metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type, reduce='none'
+            )
+        elif fusion_module_version == "concat":
+            self.embedding_fusion = SimpleConcatFusion(
+                image_emb_dim=fused_feat_dim,
+                metadata_emb_dim=metadata_embed_dim,
+                output_dim=output_emb_dim,
+                reduce=True
             )
             self.slice_fusion = SliceFeatureFusion(
                 slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=False
@@ -539,7 +588,7 @@ class MRISequenceClassifierWithSparseMetadata(nn.Module):
         metadata_embed_dim: int = 128,
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
-        metadata_embeder_type: str = "sparse", # "ft" or "sparse" or "sparse_v2",
+        metadata_embeder_type: str = "sparse", # "ft" or "sparse" or "sparse_v2", or "sparse_v5"
         include_regression: bool = True,
         img_enc_backbone: str | None = "swin", # "densenet" or "swin", None for resnet50 as default
         dropout_metadata: bool = False,
@@ -561,6 +610,12 @@ class MRISequenceClassifierWithSparseMetadata(nn.Module):
                 out_dim=metadata_embed_dim,
                 reduce=True if fusion_module_version == "v1" else False
             )           
+        elif metadata_embeder_type == "sparse_v5":
+            self.metadata_encoder = SparseEncoderV5(
+                num_features=metadata_input_dim,
+                out_dim=metadata_embed_dim,
+                reduce=True if fusion_module_version == "v1" else False
+            )
         elif metadata_embeder_type == "ft":
             self.metadata_encoder = FTTransformerLikeMetadataEncoder(
                 out_dim=metadata_embed_dim,
@@ -574,11 +629,21 @@ class MRISequenceClassifierWithSparseMetadata(nn.Module):
             self.slice_fusion = SliceFeatureFusion(
                 slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=True
             )
-        else:
+        elif fusion_module_version == "v2":
             self.embedding_fusion = BiDirectionalCrossModalAttentionFusionV2(
                 image_emb_dim=fused_feat_dim,
                 metadata_emb_dim=metadata_embed_dim,
                 output_dim=output_emb_dim,
+            )
+            self.slice_fusion = SliceFeatureFusion(
+                slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=False
+            )
+        elif fusion_module_version == "concat":
+            self.embedding_fusion = SimpleConcatFusion(
+                image_emb_dim=fused_feat_dim,
+                metadata_emb_dim=metadata_embed_dim,
+                output_dim=output_emb_dim,
+                reduce=True
             )
             self.slice_fusion = SliceFeatureFusion(
                 slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=False
@@ -608,7 +673,6 @@ class MRISequenceClassifierWithSparseMetadata(nn.Module):
             prob = 0.3
             # Mask mostly the 8-th column (enc_ScanOptions_fatsat) which is the most important feature, but also randomly mask other features to make model more robust to missing values
             mask = torch.rand(metadata.shape, device=metadata.device) < prob
-            mask = mask | (torch.rand(metadata.shape, device=metadata.device) < prob) * (torch.arange(metadata.shape[2], device=metadata.device) == 8) # Ensure the 8-th column has higher chance to be masked
             metadata = metadata.masked_fill(mask, float('nan'))
 
         # Encode image slices
@@ -672,7 +736,7 @@ class MRISequenceClassifierWithSparseMetadata(nn.Module):
         metadata = metadata.unsqueeze(1)    # (B, 1, metadata_input_dim) N_slices = 1 for SparseMetadataEncoder
         return self.metadata_encoder(metadata)
 
-class ImageFusionClassifier(nn.Module):
+class ImageBasedClassifier(nn.Module):
     """
     Image-only ablation model.
 
@@ -686,6 +750,7 @@ class ImageFusionClassifier(nn.Module):
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
         backbone: str | None = "swin", # "densenet" or "swin", None for resnet50 as default
+        incl_regression: bool = False,
     ):
         super().__init__()
         self.image_encoder = MultiSliceImageEncoder(backbone=backbone)
@@ -693,7 +758,7 @@ class ImageFusionClassifier(nn.Module):
         slice_feat_dim = self.image_encoder.get_feature_dimension()
 
         self.slice_fusion = SliceFeatureFusion(
-            slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim
+            slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=True
         )
 
         self.output_proj = nn.Sequential(
@@ -702,9 +767,9 @@ class ImageFusionClassifier(nn.Module):
             nn.GELU(),
         )
 
-        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict)
+        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict, incl_regression=incl_regression)
 
-    def forward(self, image_slices: torch.Tensor) -> tuple:
+    def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
         """
         Args:
             image_slices (torch.Tensor): MRI slices (B, N_slices, C, H, W)
@@ -722,7 +787,36 @@ class ImageFusionClassifier(nn.Module):
         res = self.multi_task_head(joint_feat)
         return res
 
-class MetadataFusionClassifier(nn.Module):
+class SingleChannelImageBasedClassifier(nn.Module):
+
+    def __init__(
+        self,
+        num_classes_dict: dict,
+        incl_regression: bool = False,
+    ):
+        super().__init__()
+        self.image_encoder = models.densenet121(weights=DenseNet121_Weights.DEFAULT)
+        feature_dim = self.image_encoder.classifier.in_features
+        self.image_encoder.classifier = nn.Identity()  # Remove the original classifier
+        self.multi_task_head = MultiTaskHead(feature_dim, num_classes_dict, incl_regression=incl_regression)
+
+    def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
+        """
+        Args:
+            image_slices (torch.Tensor): MRI slices (B, N_slices, C, H, W)
+        Returns:
+            tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
+        """
+        B, N, H, W = image_slices.shape
+        if N == 1:
+            # If only one slice, just repeat it to create a batch of size 3 for the DenseNet
+            image_slices = image_slices.repeat(1, 3, 1, 1)  # (B, 3, H, W)
+        # Encode image slices
+        slice_feats = self.image_encoder(image_slices)  # (B, N_slices, slice_feat_dim)
+        res = self.multi_task_head(slice_feats)
+        return res
+    
+class MetadataBasedClassifier(nn.Module):
     """
     Metadata-only ablation model.
 
@@ -737,17 +831,24 @@ class MetadataFusionClassifier(nn.Module):
         metadata_embed_dim: int = 128,
         output_emb_dim: int = 256,
         metadata_encoder_type: str = "imputer", # "imputer" or "sparse"
-        imputer_type: str = "contextual", # "contextual" or "ignorer"
+        imputer_type: str = "contextual", # "contextual" or "ignorer",
+        incl_regression: bool = False,
     ):
         super().__init__()
-        logger.info(f"Initializing MetadataFusionClassifier with metadata_encoder_type={metadata_encoder_type}")
+        logger.info(f"Initializing MetadataBasedClassifier with metadata_encoder_type={metadata_encoder_type}")
         if metadata_encoder_type == "imputer":
             self.metadata_encoder = MetadataEncoder(
                 metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type
             )
             logger.info(f"Using MetadataEncoder with imputer type: {imputer_type}")
         elif metadata_encoder_type == "sparse":
-            self.metadata_encoder = SparseMetadataEncoder(
+            self.metadata_encoder = SparseEncoderV1(
+                num_features=metadata_input_dim,
+                out_dim=metadata_embed_dim,
+                reduce=True,
+            )
+        elif metadata_encoder_type == "sparse_v2":
+            self.metadata_encoder = SparseEncoderV2(
                 num_features=metadata_input_dim,
                 out_dim=metadata_embed_dim,
                 reduce=True,
@@ -761,7 +862,7 @@ class MetadataFusionClassifier(nn.Module):
             nn.GELU(),
         )
 
-        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict)
+        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict, incl_regression=incl_regression)
 
     def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
         """
@@ -770,10 +871,6 @@ class MetadataFusionClassifier(nn.Module):
         Returns:
             tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
         """
-        
-        # Encode metadata
-        if self.metadata_encoder.__class__ == SparseMetadataEncoder:
-            metadata = metadata.unsqueeze(1)    # (B, 1, metadata_input_dim) N_slices = 1 for SparseMetadataEncoder
         metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim)
         proj_feat = self.output_proj(metadata_feat)
 
