@@ -141,10 +141,12 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Train MRI Sequence Classifier")
-    parser.add_argument("--backbone", type=str, default="densenet", help="Image encoder backbone")
+    parser.add_argument("--backbone", type=str, default="densenet121", help="Image encoder backbone")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size for training")
     parser.add_argument("--gpu", type=int, default=1, help="GPU id to use")
     parser.add_argument("--ckpt", type=str, default=None, help="Path to checkpoint to resume training")
+    parser.add_argument("--metadata_enc_type", type=str, default='none', help="Which metadata encoder to use: 'none' or 'imputer'")
+    parser.add_argument("--fusion_module_version", type=str, default="concat", help="Fusion module version: v1 or v2 or concat")
     args = parser.parse_args()
 
     # Directory for profiling
@@ -166,8 +168,22 @@ if __name__ == "__main__":
     lr = 1e-6
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     incl_regression = True
-
-    log_training_start(logger, config={"device": str(device), "batch_size": batch_size, "num_epochs": num_epochs, "dataset_version": "local", "model_version": "04", "impute": "yes", "learning_rate": lr, "checkpoint": args.ckpt})
+    config={
+        "device": str(device), 
+        "batch_size": batch_size, 
+        "num_epochs": num_epochs, 
+        "dataset_version": "local", 
+        "model_version": "04", 
+        "impute": args.metadata_enc_type, 
+        "fusion_module_version": args.fusion_module_version,
+        "learning_rate": lr, 
+        "checkpoint": args.ckpt
+    }
+    # Save config as json in log directory
+    import json
+    with open(os.path.join(log_dir, "config.json"), "w") as f:
+        json.dump(config, f, indent=4)
+    log_training_start(logger, config=config)
 
     with capture_console_to_log(logger):
         num_samples = None # Set to None to use full dataset
@@ -180,8 +196,16 @@ if __name__ == "__main__":
         cl_d = train_loader.dataset.get_n_labels()
         print("Label config", cl_d)
 
-        metadata_input_dim = 32 if use_preselected_features else 119
-        model = MRISequenceClassifier(metadata_input_dim=metadata_input_dim, num_classes_dict=cl_d, img_enc_backbone=args.backbone, incl_regression=incl_regression)
+        metadata_input_dim = train_loader.dataset.num_metadata_features if use_preselected_features else 119
+        if args.metadata_enc_type == 'imputer':
+            imputer_type = "contextual"
+        elif args.metadata_enc_type == 'none':
+            imputer_type = 'ignore'
+        model = MRISequenceClassifier(metadata_input_dim=metadata_input_dim, num_classes_dict=cl_d, img_enc_backbone=args.backbone, incl_regression=incl_regression, imputer_type=imputer_type, fusion_module_version=args.fusion_module_version)
+        # Save model architecture to log directory
+        with open(os.path.join(log_dir, "model_architecture.txt"), "w") as f:
+            f.write(str(model))
+        print(f"Model architecture saved to {os.path.join(log_dir, 'model_architecture.txt')}")
         if args.ckpt is not None:
             print(f"Loading checkpoint from {args.ckpt}")
             checkpoint = torch.load(args.ckpt, map_location=device)

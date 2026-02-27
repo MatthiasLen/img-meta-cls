@@ -166,7 +166,7 @@ if __name__ == "__main__":
     with capture_console_to_log(logger):
         num_samples = None  # Use all samples
         aggregated_metadata= False
-        use_preselected_features = True
+        use_preselected_features = False
         exclude_contrast_yn = True
         train_loader = get_train_dataloader(batch_size=batch_size, num_samples=num_samples, num_workers=4, aggregated_metadata=aggregated_metadata, use_preselected_features=use_preselected_features, exclude_contrast_yn=exclude_contrast_yn)
         val_loader = get_valid_dataloader(batch_size=batch_size, num_samples=num_samples, num_workers=4, aggregated_metadata=aggregated_metadata, use_preselected_features=use_preselected_features, exclude_contrast_yn=exclude_contrast_yn)
@@ -174,15 +174,22 @@ if __name__ == "__main__":
         cl_d = train_loader.dataset.get_n_labels()
         print("Label config", cl_d)
 
-        metadata_input_dim = 32 if use_preselected_features else 119
+        metadata_input_dim = train_loader.dataset.num_metadata_features 
         if version == "v1":
             model = MRISequenceClassifierWithSparseMetadata(metadata_input_dim=metadata_input_dim, num_classes_dict=cl_d, metadata_embeder_type="sparse", img_enc_backbone=args.backbone, dropout_metadata=metadata_dropout, fusion_module_version=args.fusion_module_version)
-        else:
+        elif version == "v2":
             model = MRISequenceClassifierWithSparseMetadata(metadata_input_dim=metadata_input_dim, num_classes_dict=cl_d, metadata_embeder_type="sparse_v2", img_enc_backbone=args.backbone, dropout_metadata=metadata_dropout, fusion_module_version=args.fusion_module_version)
+        elif version == "v5":
+            model = MRISequenceClassifierWithSparseMetadata(metadata_input_dim=metadata_input_dim, num_classes_dict=cl_d, metadata_embeder_type="sparse_v5", img_enc_backbone=args.backbone, dropout_metadata=metadata_dropout, fusion_module_version=args.fusion_module_version)
         model.to(device)
     
         # Initialize weights once before training, do NOT overwrite pretrained weights inside backbone
         model.apply(init_weights)
+
+        # Save the model architecture as text for reference
+        model_arch_path = os.path.join(log_dir, "model_architecture.txt")
+        with open(model_arch_path, "w") as f:
+            f.write(str(model))
 
         # lr scheduler
         steps_per_epoch = len(train_loader)
@@ -195,7 +202,7 @@ if __name__ == "__main__":
         scheduler = get_scheduler(optimizer, warmup_steps, total_steps)
 
         # loss
-        criterion = MultiTaskLoss(label_smoothing=0.1, incl_regression=True)
+        criterion = MultiTaskLoss(label_smoothing=0.1, incl_regression=True, task_names=list(cl_d.keys()))
 
         # gradient scaler
         scaler = torch.amp.GradScaler("cuda", init_scale=2**16)

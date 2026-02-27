@@ -17,14 +17,20 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
-from torch.utils.data import DataLoader
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 import numpy as np
-
-from IMC.helper import plot_batch_per_sample, normalize_per_sample, count_parameters
-from IMC.helper import setup_experiment_logging, capture_console_to_log, log_training_start, log_training_end
 from IMC.nn.multi_task_loss import MultiTaskLoss
+from IMC.helper import capture_console_to_log, log_training_start, log_training_end
+from IMC.tensorboard_logging import setup_combined_logging
+import time 
+
+# Set environment variables or paths for local dataset
+os.environ["DEBUG_MODE"] = "0"  # Enable debug mode
+os.environ["LOCAL_DATASET_PATH"] = "/home/tuan.truong/data/PV.AI"
+os.environ["METADATA_PATH"] = "/home/tuan.truong/codebase/IMC/labels/encoded_metadata_20251217.parquet"
+os.environ["LABEL_CSV_PATH"] = "/home/tuan.truong/codebase/IMC/labels/pvai_labels_20250603_local.csv"
+
 
 def init_weights(module: nn.Module) -> None:
     """
@@ -80,7 +86,7 @@ def get_scheduler(
     return LambdaLR(optimizer, lr_lambda)
 
 
-def create_optimizer(model: torch.nn.Module, lr: float = 1.0e-6, weight_decay: float = 1e-2) -> Optimizer:
+def create_optimizer(model: torch.nn.Module, lr: float = 1.0e-6, weight_decay: float = 1e-2, eps: float = 1e-8) -> Optimizer:
     """
     AdamW optimizer with separate weight decay for bias and norm layers.
 
@@ -103,22 +109,28 @@ def create_optimizer(model: torch.nn.Module, lr: float = 1.0e-6, weight_decay: f
         else:
             decay.append(param)
 
-    return AdamW([{"params": decay, "weight_decay": weight_decay},{"params": no_decay, "weight_decay": 0.0}],lr=lr)
+    return AdamW([{"params": decay, "weight_decay": weight_decay},{"params": no_decay, "weight_decay": 0.0}],lr=lr, eps=eps)
 
 # Example usage:
 if __name__ == "__main__":
-    from torch.utils.data import DataLoader
-    from IMC.network04 import ImageFusionClassifier
+    from IMC.network04 import ImageBasedClassifier
     from IMC.data.liver_dataloader_local import get_train_dataloader, get_valid_dataloader, get_test_dataloader
     from IMC.tensorboard_logging import setup_combined_logging
+    import argparse
     import time 
+
+    parser = argparse.ArgumentParser(description="Train MRI Sequence Classifier")
+    parser.add_argument("--backbone", type=str, default="densenet121", help="Image encoder backbone")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for training")
+    parser.add_argument("--gpu", type=int, default=1, help="GPU id to use")
+    args = parser.parse_args()
 
     # Directory for profiling
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     log_dir = os.path.join("./logs", timestamp)
     profiler_dir = os.path.join(log_dir, "profiler")
     os.makedirs(profiler_dir, exist_ok=True)
-    experiment_name = "baseline_model_04"
+    experiment_name = f"baseline_image_only_model_04_{args.backbone}"
 
     # Setup combined logging (file + TensorBoard)
     logger, log_path, tb_logger = setup_combined_logging(
@@ -127,20 +139,24 @@ if __name__ == "__main__":
         tb_log_dir=log_dir
     )
     # Log training start
-    batch_size = 16
+    batch_size = args.batch_size
     num_epochs = 15
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+    incl_regression = True
     log_training_start(logger, config={"device": str(device), "batch_size": batch_size, "num_epochs": num_epochs, "dataset_version": "local", "model_version": "04", "impute": "no", "feature": "image"})
 
     with capture_console_to_log(logger):
-
-        train_loader = get_train_dataloader(batch_size=16, num_samples=None, num_workers=4)
-        val_loader = get_valid_dataloader(batch_size=16, num_samples=None, num_workers=4)
-        test_loader = get_test_dataloader(batch_size=16, num_samples=None, num_workers=4)
+        num_samples = None  # Set to an integer for debugging with a smaller subset
+        aggregated_metadata = False 
+        use_preselected_features = False 
+        exclude_contrast_yn = True
+        train_loader = get_train_dataloader(batch_size=batch_size, num_samples=num_samples, num_workers=4, aggregated_metadata=aggregated_metadata, use_preselected_features=use_preselected_features, exclude_contrast_yn=exclude_contrast_yn)
+        val_loader = get_valid_dataloader(batch_size=batch_size, num_samples=num_samples, num_workers=4, aggregated_metadata=aggregated_metadata, use_preselected_features=use_preselected_features, exclude_contrast_yn=exclude_contrast_yn)
+        test_loader = get_test_dataloader(batch_size=batch_size, num_samples=num_samples, num_workers=4, aggregated_metadata=aggregated_metadata, use_preselected_features=use_preselected_features, exclude_contrast_yn=exclude_contrast_yn)
         cl_d = train_loader.dataset.get_n_labels()
         print("Label config", cl_d)
 
-        model = ImageFusionClassifier(num_classes_dict=cl_d)
+        model = ImageBasedClassifier(num_classes_dict=cl_d, backbone=args.backbone)
         model.to(device)
     
         # Initialize weights once before training, do NOT overwrite pretrained weights inside backbone
@@ -156,7 +172,7 @@ if __name__ == "__main__":
         scheduler = get_scheduler(optimizer, warmup_steps, total_steps)
 
         # loss
-        criterion = MultiTaskLoss(label_smoothing=0.1)
+        criterion = MultiTaskLoss(label_smoothing=0.1, incl_regression=incl_regression, task_names=list(cl_d.keys()))
 
         # gradient scaler
         scaler = torch.amp.GradScaler("cuda", init_scale=2**16)
@@ -173,7 +189,9 @@ if __name__ == "__main__":
             tb_logger=tb_logger,
             logger=logger,
             patience=5,
-            img_ft_only=True
+            img_ft_only=True,
+            incl_regression=incl_regression,
+            use_mixed_precision=True
         )
         trainer.fit(
             train_loader=train_loader,
