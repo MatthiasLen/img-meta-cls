@@ -124,18 +124,10 @@ class Trainer:
             if self.use_mixed_precision:
                 with torch.amp.autocast("cuda"):
                     images = normalize_per_sample(images)
-
-                    if not self.img_ft_only:
-                        outputs = self.model(images, metadata)
-                    else:
-                        outputs = self.model(images)
+                    outputs = self.model(images, metadata)
             else:
                 images = normalize_per_sample(images)
-
-                if not self.img_ft_only:
-                    outputs = self.model(images, metadata)
-                else:
-                    outputs = self.model(images)
+                outputs = self.model(images, metadata)
 
             loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
 
