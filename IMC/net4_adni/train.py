@@ -643,14 +643,14 @@ def main() -> None:
 
             with open(os.path.join(fold_log_dir, "model_architecture.txt"), "w") as f:
                 f.write(str(model))
-
+            model.apply(init_weights)
             if args.ckpt is not None:
                 print(f"  Loading checkpoint from {args.ckpt}")
                 checkpoint = torch.load(args.ckpt, map_location=device)
                 model.load_state_dict(checkpoint["model_state_dict"])
 
             model.to(device)
-            model.apply(init_weights)
+
 
             # ---- optimisation setup ----------------------------------------
             steps_per_epoch = len(train_loader)
