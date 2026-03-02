@@ -89,13 +89,6 @@ class ContextualImputer(nn.Module):
             torch.Tensor: Imputed tensor of shape (B, F) with all NaNs replaced.
                 If N > 1, applies mean aggregation over the slice dimension.
         """
-        B, N, F = x.shape
-        # Handle different sequence lengths by reshaping
-        if N == 1:
-            x = x.view(B, F)  # (B, num_features)
-        else:
-            x = x.view(B * N, F)  # (B * n_slices, num_features)
-
         # Input validation
         if not isinstance(x, torch.Tensor):
             raise TypeError(f"Input x must be a torch.Tensor but got {type(x)}")
@@ -117,7 +110,7 @@ class ContextualImputer(nn.Module):
         # Step 2: Prepare input for imputation network
         # Concatenate filled values with observation mask (converted to float)
         # The mask tells the network which values are real vs filled
-        imputer_input = torch.cat([x_filled, mask.float()], dim=-1).to(x.dtype)
+        imputer_input = torch.cat([x_filled, mask.to(x.dtype)], dim=-1).to(x.dtype)
         
         # Step 3: Predict refined imputed values for all features
         imputed_values = self.imputer_net(imputer_input)  # (*, num_features)
@@ -126,11 +119,6 @@ class ContextualImputer(nn.Module):
         # This ensures we never modify real data
         x_imputed = torch.where(mask, x_filled, imputed_values)
 
-        # If we had multiple slices, aggregate them
-        if N != 1:
-            x_imputed = x_imputed.view(B, N, F)  # (B, N, num_features)
-            x_imputed = x_imputed.mean(dim=1)    # (B, num_features) - mean over slices
-        
         return x_imputed
 
 
@@ -212,22 +200,21 @@ class MetadataEncoder(nn.Module):
             - 'contextual': Uses ContextualImputer (learned, context-aware imputation)
             - 'ignore': Uses NanIgnorer (simple zero-filling)
             Default: 'contextual'.
-        reduce (str, optional): Reduction method for multi-slice inputs. Options:
-            - 'mean': Average pooling over sequence dimension
-            - 'max': Max pooling over sequence dimension
-            - 'none': No reduction, return full sequence
-            Default: 'mean'.
+        reduce (bool, optional): Whether to reduce the sequence dimension. Options:
+            - True: Apply mean pooling over sequence dimension
+            - False: No reduction, return full sequence
+            Default: False.
 
     Input Shape:
         (batch_size, num_slices, input_dim) or (batch_size, input_dim)
         NaNs indicate missing values.
 
     Output Shape:
-        - (batch_size, embed_dim) if reduce='mean' or 'max'
-        - (batch_size, num_slices, embed_dim) if reduce='none'
+        - (batch_size, embed_dim) if reduce=True
+        - (batch_size, num_slices, embed_dim) if reduce=False
     """
 
-    def __init__(self, input_dim: int, embed_dim: int = 128, dropout: float = 0.1, imputer: str = 'contextual', reduce: str = 'mean'):
+    def __init__(self, input_dim: int, embed_dim: int = 128, dropout: float = 0.1, imputer: str = 'contextual', reduce: bool = False):
         """
         Initialize the Metadata Encoder.
         
@@ -236,7 +223,7 @@ class MetadataEncoder(nn.Module):
             embed_dim (int, optional): Output embedding dimension. Default: 128.
             dropout (float, optional): Dropout probability. Default: 0.1.
             imputer (str, optional): Imputation strategy ('contextual' or 'ignore'). Default: 'contextual'.
-            reduce (str, optional): Reduction method ('mean', 'max', or 'none'). Default: 'mean'.
+            reduce (bool, optional): Whether to reduce the sequence dimension. Default: False.
         """
         super().__init__()
 
@@ -273,7 +260,6 @@ class MetadataEncoder(nn.Module):
             self.residual = nn.Linear(input_dim, embed_dim)
         
         # Validate and store reduction method
-        assert reduce in ['mean', 'max', 'none'], f"Unknown reduce method: {reduce}. Choose from 'mean', 'max', or 'none'."
         self.reduce = reduce
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -299,12 +285,8 @@ class MetadataEncoder(nn.Module):
         x = self.residual(x) + self.proj(x)
 
         # Step 3: Optionally reduce over sequence dimension
-        if self.reduce == 'mean':
+        if self.reduce:
             x = x.mean(dim=1)  # Average over slices
-        elif self.reduce == 'max':
-            x, _ = x.max(dim=1)  # Max over slices
-        # If reduce == 'none', return full sequence
-        
         return x
 
 

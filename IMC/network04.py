@@ -416,11 +416,13 @@ class MRISequenceClassifier(nn.Module):
         metadata_embed_dim: int = 128,
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
-        imputer_type: str = "contextual",
-        img_enc_backbone: str | None = "swin", # "densenet" or "swin", None for resnet50 as default
+        metadata_encoder_type: str = "imputer", # "imputer" or "sparse"
+        imputer_type: str = "contextual", # if metadata_encoder_type is "imputer", which type to use ("contextual" or "ignore")
+        sparse_enc_version: str = "v1", # if metadata_encoder_type is "sparse", which version to use ("v1", "v2", or "v5")
+        img_enc_backbone: str | None = "densenet121", # "densenet" or "swin", None for resnet50 as default
         incl_regression: bool = True,
         dropout_metadata: bool = False,
-        fusion_module_version: str = "v1" #v1 or v2
+        fusion_module_version: str = "v1" #v1 or v2 or concat
     ):
         super().__init__()
         self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone) 
@@ -428,32 +430,58 @@ class MRISequenceClassifier(nn.Module):
 
         # Check fusion module version
         assert fusion_module_version in ["v1", "v2", "concat"], "fusion_module_version must be 'v1', 'v2', or 'concat'"
+        # Check metadata encoder type
+        assert metadata_encoder_type in ["imputer", "sparse"], "metadata_encoder_type must be 'imputer' or 'sparse'"
+        # Check imputer type
+        assert imputer_type in ["contextual", "ignore"], "imputer_type must be 'contextual' or 'ignore'"
+        # Check sparse encoder version
+        assert sparse_enc_version in ["v1", "v2", "v5"], "sparse_enc_version must be 'v1', 'v2', or 'v5'"
+        
+        # Prefill for slice_fusion and metadata encoder based on fusion module version
+        self.slice_fusion = SliceFeatureFusion(
+            slice_feat_dim=slice_feat_dim, 
+            fused_dim=fused_feat_dim, 
+            reduce=True if fusion_module_version == "v1" else False
+        )
+        if metadata_encoder_type == "imputer":
+            self.metadata_encoder = MetadataEncoder(
+                metadata_input_dim, 
+                embed_dim=metadata_embed_dim, 
+                imputer=imputer_type, 
+                reduce=True if fusion_module_version == "v1" else False
+            )
+        elif metadata_encoder_type == "sparse":
+            if sparse_enc_version == "v1":
+                self.metadata_encoder = SparseEncoderV1(
+                    metadata_input_dim,
+                    out_dim=metadata_embed_dim,
+                    reduce=True if fusion_module_version == "v1" else False
+                )
+            elif sparse_enc_version == "v2":
+                self.metadata_encoder = SparseEncoderV2(
+                    metadata_input_dim,
+                    out_dim=metadata_embed_dim,
+                    reduce=True if fusion_module_version == "v1" else False
+                )
+            elif sparse_enc_version == "v5":
+                self.metadata_encoder = SparseEncoderV5(
+                    metadata_input_dim,
+                    out_dim=metadata_embed_dim,
+                    reduce=True if fusion_module_version == "v1" else False
+                )
 
+        # Create fusion module based on version
         if fusion_module_version == "v1":
             self.embedding_fusion = BiDirectionalCrossModalAttentionFusion(
                 image_emb_dim=fused_feat_dim,
                 metadata_emb_dim=metadata_embed_dim,
                 output_dim=output_emb_dim,
             )
-            self.slice_fusion = SliceFeatureFusion(
-                slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=True
-            )
-
-            self.metadata_encoder = MetadataEncoder(
-                metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type, reduce='mean'
-            )
         elif fusion_module_version == "v2":
             self.embedding_fusion = BiDirectionalCrossModalAttentionFusionV2(
                 image_emb_dim=fused_feat_dim,
                 metadata_emb_dim=metadata_embed_dim,
                 output_dim=output_emb_dim,
-            )
-            self.slice_fusion = SliceFeatureFusion(
-                slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=False
-            )
-
-            self.metadata_encoder = MetadataEncoder(
-                metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type, reduce='none'
             )
         elif fusion_module_version == "concat":
             self.embedding_fusion = SimpleConcatFusion(
@@ -462,16 +490,9 @@ class MRISequenceClassifier(nn.Module):
                 output_dim=output_emb_dim,
                 reduce=True
             )
-            self.slice_fusion = SliceFeatureFusion(
-                slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=False
-            )
-
-            self.metadata_encoder = MetadataEncoder(
-                metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type, reduce='none'
-            )
-
+        # Initialize multi-task head
         self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict, incl_regression=incl_regression)
-
+        # Optional: metadata dropout during training
         self.dropout_metadata = dropout_metadata
 
     def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
@@ -493,13 +514,9 @@ class MRISequenceClassifier(nn.Module):
                 logger.error(f"Metadata input contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
 
         # Optional metadata dropout: randomly mask features to simulate missing values
-        # The 8th feature (enc_ScanOptions_fatsat) is masked more frequently to stress-test robustness
         if self.training and self.dropout_metadata:
             prob = 0.3
             mask = torch.rand(metadata.shape, device=metadata.device) < prob
-            mask = mask | (torch.rand(metadata.shape, device=metadata.device) < prob) * (
-                torch.arange(metadata.shape[1], device=metadata.device) == 8
-            )
             metadata = metadata.masked_fill(mask, float('nan'))
         
         # Encode image slices
@@ -560,182 +577,6 @@ class MRISequenceClassifier(nn.Module):
             torch.Tensor: Metadata features (B, metadata_embed_dim)
         """
         return self.metadata_encoder(metadata)
-
-class MRISequenceClassifierWithSparseMetadata(nn.Module):
-    """
-    Multi-modal classifier using sparse metadata encoding.
-
-    Uses SparseMetadataEncoder (v1 or v2) or an FT-like encoder to embed metadata with
-    NaN handling, fuses with image features via cross-attention, and predicts multiple tasks.
-
-    Args:
-        num_classes_dict: Mapping of task name to number of classes.
-        metadata_input_dim: Number of metadata features.
-        metadata_embed_dim: Dimension of metadata embedding.
-        fused_feat_dim: Dimension of fused slice features.
-        output_emb_dim: Dimension of fused image+metadata embedding.
-        metadata_embeder_type: 'sparse', 'sparse_v2', or 'ft'.
-        include_regression: Whether to include regression task in the head.
-        img_enc_backbone: Image encoder backbone name.
-        dropout_metadata: Enable random metadata masking during training.
-        fusion_module_version: 'v1' or 'v2' fusion module selection.
-    """
-
-    def __init__(
-        self,
-        num_classes_dict: dict,
-        metadata_input_dim: int,
-        metadata_embed_dim: int = 128,
-        fused_feat_dim: int = 256,
-        output_emb_dim: int = 128,
-        metadata_embeder_type: str = "sparse", # "ft" or "sparse" or "sparse_v2", or "sparse_v5"
-        include_regression: bool = True,
-        img_enc_backbone: str | None = "swin", # "densenet" or "swin", None for resnet50 as default
-        dropout_metadata: bool = False,
-        fusion_module_version: str = "v1" #v1 or v2
-    ):
-        super().__init__()
-        self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone)
-        slice_feat_dim = self.image_encoder.get_feature_dimension()
-
-        if metadata_embeder_type == "sparse_v2":
-            self.metadata_encoder = SparseEncoderV2(
-                num_features=metadata_input_dim,
-                out_dim=metadata_embed_dim,
-                reduce=True if fusion_module_version == "v1" else False
-            ) 
-        elif metadata_embeder_type == "sparse":
-            self.metadata_encoder = SparseEncoderV1(
-                num_features=metadata_input_dim,
-                out_dim=metadata_embed_dim,
-                reduce=True if fusion_module_version == "v1" else False
-            )           
-        elif metadata_embeder_type == "sparse_v5":
-            self.metadata_encoder = SparseEncoderV5(
-                num_features=metadata_input_dim,
-                out_dim=metadata_embed_dim,
-                reduce=True if fusion_module_version == "v1" else False
-            )
-        elif metadata_embeder_type == "ft":
-            self.metadata_encoder = FTTransformerLikeMetadataEncoder(
-                out_dim=metadata_embed_dim,
-            )
-        if fusion_module_version == "v1":
-            self.embedding_fusion = BiDirectionalCrossModalAttentionFusion(
-                image_emb_dim=fused_feat_dim,
-                metadata_emb_dim=metadata_embed_dim,
-                output_dim=output_emb_dim,
-            )
-            self.slice_fusion = SliceFeatureFusion(
-                slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=True
-            )
-        elif fusion_module_version == "v2":
-            self.embedding_fusion = BiDirectionalCrossModalAttentionFusionV2(
-                image_emb_dim=fused_feat_dim,
-                metadata_emb_dim=metadata_embed_dim,
-                output_dim=output_emb_dim,
-            )
-            self.slice_fusion = SliceFeatureFusion(
-                slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=False
-            )
-        elif fusion_module_version == "concat":
-            self.embedding_fusion = SimpleConcatFusion(
-                image_emb_dim=fused_feat_dim,
-                metadata_emb_dim=metadata_embed_dim,
-                output_dim=output_emb_dim,
-                reduce=True
-            )
-            self.slice_fusion = SliceFeatureFusion(
-                slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=False
-            )
-        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict, incl_regression=include_regression)
-        self.dropout_metadata = dropout_metadata
-
-    def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> list:
-        """
-        Args:
-            image_slices (torch.Tensor): MRI slices (B, N_slices, C, H, W)
-            metadata (torch.Tensor): Sparse DICOM metadata (B, metadata_input_dim) with NaNs for missing values
-        Returns:
-            tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
-        """
-        if DEBUG_MODE:
-            logger.debug(f"Input image_slices shape: {image_slices.shape}")
-            logger.debug(f"Input metadata shape: {metadata.shape}")
-            logger.debug(f"Input stats - Images: min={image_slices.min():.3f}, max={image_slices.max():.3f}, mean={image_slices.mean():.3f}")
-            logger.debug(f"Input stats - Metadata: min={metadata.min():.3f}, max={metadata.max():.3f}, mean={metadata.mean():.3f}")
-            has_nan = torch.isnan(metadata).any()
-            has_inf = torch.isinf(metadata).any()
-            if has_nan or has_inf:
-                logger.error(f"Metadata input contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-        # Randomly set metadata to nan during training
-        if self.training and self.dropout_metadata:
-            prob = 0.3
-            # Mask mostly the 8-th column (enc_ScanOptions_fatsat) which is the most important feature, but also randomly mask other features to make model more robust to missing values
-            mask = torch.rand(metadata.shape, device=metadata.device) < prob
-            metadata = metadata.masked_fill(mask, float('nan'))
-
-        # Encode image slices
-        slice_feats = self.image_encoder(image_slices)  # (B, N_slices, slice_feat_dim)
-        fused_img_feat = self.slice_fusion(slice_feats)  # (B, fused_feat_dim)
-
-        if DEBUG_MODE:
-            logger.debug(f"Fused image feature shape: {fused_img_feat.shape}")
-            logger.debug(f"Fused image feature stats: min={fused_img_feat.min():.3f}, max={fused_img_feat.max():.3f}, mean={fused_img_feat.mean():.3f}")
-            has_nan = torch.isnan(fused_img_feat).any()
-            has_inf = torch.isinf(fused_img_feat).any()
-            if has_nan or has_inf:
-                logger.debug(f"Fused image feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-        
-        # Encode sparse metadata
-        # Metadata has shape of (B, metadata_input_dim) with NaNs for missing values
-        # metadata = metadata.unsqueeze(1)    # (B, 1, metadata_input_dim) N_slices = 1 for SparseMetadataEncoder
-        metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim)
-
-        if DEBUG_MODE:
-            logger.debug(f"Metadata feature shape: {metadata_feat.shape}")
-            logger.debug(f"Metadata feature stats: min={metadata_feat.min():.3f}, max={metadata_feat.max():.3f}, mean={metadata_feat.mean():.3f}")
-            has_nan = torch.isnan(metadata_feat).any()
-            has_inf = torch.isinf(metadata_feat).any()
-            if has_nan or has_inf:
-                logger.debug(f"Metadata feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-        
-        # Fuse features from image embedding and meta data embedding
-        joint_feat = self.embedding_fusion(fused_img_feat, metadata_feat)
-
-        if DEBUG_MODE:
-            logger.debug(f"Joint feature shape: {joint_feat.shape}")
-            logger.debug(f"Joint feature stats: min={joint_feat.min():.3f}, max={joint_feat.max():.3f}, mean={joint_feat.mean():.3f}")
-            has_nan = torch.isnan(joint_feat).any()
-            has_inf = torch.isinf(joint_feat).any()
-            if has_nan or has_inf:
-                logger.debug(f"Joint feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-
-        # feed combined embedding to multi-task head
-        res = self.multi_task_head(joint_feat)
-
-        if DEBUG_MODE:
-            for i, r in enumerate(res):
-                logger.debug(f"Output logits for task {i} shape: {r.shape}")
-                logger.debug(f"Output logits for task {i} stats: min={r.min():.3f}, max={r.max():.3f}, mean={r.mean():.3f}")
-                has_nan = torch.isnan(r).any()
-                has_inf = torch.isinf(r).any()
-                if has_nan or has_inf:
-                    logger.debug(f"Output logits for task {i} contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-        return res
-    
-    @torch.no_grad()
-    def get_metadata_features(self, metadata: torch.Tensor) -> torch.Tensor:
-        """
-        Utility function to extract metadata features alone.
-        Args:
-            metadata (torch.Tensor): Sparse DICOM metadata (B, metadata_input_dim) with NaNs for missing values
-        Returns:
-            torch.Tensor: Metadata features (B, metadata_embed_dim)
-        """
-        metadata = metadata.unsqueeze(1)    # (B, 1, metadata_input_dim) N_slices = 1 for SparseMetadataEncoder
-        return self.metadata_encoder(metadata)
-
 class ImageBasedClassifier(nn.Module):
     """
     Image-only ablation model.
@@ -749,11 +590,11 @@ class ImageBasedClassifier(nn.Module):
         num_classes_dict: dict,
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
-        backbone: str | None = "swin", # "densenet" or "swin", None for resnet50 as default
+        img_enc_backbone: str | None = "swin", # "densenet" or "swin", None for resnet50 as default
         incl_regression: bool = False,
     ):
         super().__init__()
-        self.image_encoder = MultiSliceImageEncoder(backbone=backbone)
+        self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone)
         
         slice_feat_dim = self.image_encoder.get_feature_dimension()
 
@@ -787,7 +628,7 @@ class ImageBasedClassifier(nn.Module):
         res = self.multi_task_head(joint_feat)
         return res
 
-class SingleChannelImageBasedClassifier(nn.Module):
+class SimpleImageBasedClassifier(nn.Module):
 
     def __init__(
         self,
@@ -831,28 +672,40 @@ class MetadataBasedClassifier(nn.Module):
         metadata_embed_dim: int = 128,
         output_emb_dim: int = 256,
         metadata_encoder_type: str = "imputer", # "imputer" or "sparse"
-        imputer_type: str = "contextual", # "contextual" or "ignorer",
+        imputer_type: str = "contextual", # "contextual" or "ignore" (only relevant if metadata_encoder_type is "imputer"),
+        sparse_enc_version: str = "v1", # if metadata_encoder_type is "sparse", which version to use ("v1", "v2", or "v5")
         incl_regression: bool = False,
     ):
         super().__init__()
         logger.info(f"Initializing MetadataBasedClassifier with metadata_encoder_type={metadata_encoder_type}")
         if metadata_encoder_type == "imputer":
             self.metadata_encoder = MetadataEncoder(
-                metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type
+                metadata_input_dim, 
+                embed_dim=metadata_embed_dim, 
+                imputer=imputer_type, 
+                reduce=True
             )
             logger.info(f"Using MetadataEncoder with imputer type: {imputer_type}")
         elif metadata_encoder_type == "sparse":
-            self.metadata_encoder = SparseEncoderV1(
-                num_features=metadata_input_dim,
-                out_dim=metadata_embed_dim,
-                reduce=True,
-            )
-        elif metadata_encoder_type == "sparse_v2":
-            self.metadata_encoder = SparseEncoderV2(
-                num_features=metadata_input_dim,
-                out_dim=metadata_embed_dim,
-                reduce=True,
-            )
+            if sparse_enc_version == "v1":
+                self.metadata_encoder = SparseEncoderV1(
+                    num_features=metadata_input_dim,
+                    out_dim=metadata_embed_dim,
+                    reduce=True,
+                )
+            elif sparse_enc_version == "v2":
+                self.metadata_encoder = SparseEncoderV2(
+                    num_features=metadata_input_dim,
+                    out_dim=metadata_embed_dim,
+                    reduce=True,
+                )
+            elif sparse_enc_version == "v5":
+                self.metadata_encoder = SparseEncoderV5(
+                    num_features=metadata_input_dim,
+                    out_dim=metadata_embed_dim,
+                    reduce=True,
+                )
+            logger.info(f"Using SparseMetadataEncoder version: {sparse_enc_version}")
         else:
             raise ValueError("metadata_encoder_type must be 'imputer' or 'sparse'")
 
