@@ -10,7 +10,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
-from IMC.data.duke_dataloader_local import DUKE_LABEL_NAMES, DUKE_ORIGINAL_LABEL_NAMES
+from IMC.data.constants import DUKE_LABEL_NAMES, DUKE_ORIGINAL_LABEL_NAMES
 
 
 def evaluate_performance(pred_values, true_values, label_names):

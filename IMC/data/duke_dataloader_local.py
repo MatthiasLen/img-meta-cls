@@ -36,15 +36,9 @@ from torch.utils.data import DataLoader, Dataset
 
 from IMC.data.augment import augment
 from IMC.data.dicom_tag_encoding import encode_dicom_tags_by_version
+from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES, DEFAULT_LABEL_NAMES, SELECTED_FEATURES
 
 logger = logging.getLogger('IMC')
-
-# from dotenv import load_dotenv
-# load_dotenv()
-
-# os.environ["LOCAL_DATASET_PATH"] = "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2"
-# os.environ["LABEL_CSV_PATH"] = "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv"
-# os.environ["METADATA_PATH"] = "/home/tuan.truong/codebase/IMC/labels/duke_encoded_metadata_20260107.parquet"
 
 # Configuration constants
 LOCAL_DATASET_PATH = os.getenv("LOCAL_DATASET_PATH", None)
@@ -54,64 +48,6 @@ logger.info(f"METADATA_PATH: {METADATA_PATH}")
 LABEL_CSV_PATH = os.getenv("LABEL_CSV_PATH", None)
 logger.info(f"LABEL_CSV_PATH: {LABEL_CSV_PATH}")
 
-# Default label mappings for medical imaging classification
-DEFAULT_LABEL_NAMES = {
-    "label_SequenceType": [
-        "T1", "T2", "DWI", "ADC", "SUB", "DIXON_F", 
-        "DIXON_IN", "DIXON_OPP", "BOLUS", "OTHER", "na"
-    ],
-    "label_FatSat": ["yes", "no", "na"],
-    "label_MRCP": ["yes", "no", "na"],
-    "label_AcquisitionPlane": ["AX", "COR", "SAG", "ORTHO", "ROT", "na"],
-    "label_ContrastPhase": ["pre", "art", "portven", "trans", "hepa", "na"],
-    "label_Contrast": ["pre", "post", "na"],
-    "label_Localizer": ["yes", "no", "na"],
-}
-
-DUKE_LABEL_NAMES = {
-    "label_SequenceType": ["T1", "T2", "DWI", "ADC", "DIXON_IN", "DIXON_OPP", "OTHER", "na"],
-    # "label_FatSat": ["yes", "no", "na"],    
-    "label_MRCP": ["yes", "no", "na"],
-    "label_AcquisitionPlane": ["AX", "COR", "OTHER", "na"],
-    "label_ContrastPhase": ["pre", "art", "portven", "late", "na"],
-    "label_Contrast": ["pre", "post", "na"],
-    "label_Localizer": ["yes", "no", "na"],
-}
-DUKE_ORIGINAL_LABEL_NAMES = {
-    "SequenceType_Code_norm": ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']
-}
-SELECTED_FEATURES = ['enc_AcquisitionPlane_ORTHO',
- 'enc_SeriesDescription_mrcp',
- 'enc_SeriesDescription_loc',
- 'enc_FlipAngle',
- 'enc_ScanningSequence_SE',
- 'enc_AcquisitionPlane_COR',
- 'enc_MRAcquisitionType_3D',
- 'enc_MRAcquisitionType_2D',
- 'enc_ScanOptions_fatsat',
- 'enc_AcquisitionPlane_AX',
- 'enc_AcquisitionPlane_ROT',
- 'enc_ImageType_adc',
- 'enc_SliceLocation_multiple',
- 'enc_SliceThickness',
- 'enc_ImageType_subtraction',
- 'enc_EchoTrainLength',
- 'enc_ImageType_water',
- 'enc_DiffusionBValue_missing',
- 'enc_ScanningSequence_EP',
- 'enc_SequenceVariant_SK',
- 'enc_PixelBandwidth',
- 'enc_ImageOrientationPatient_multiple',
- 'enc_ContrastBolusAgent_missing',
- 'enc_SeriesDescription_t1w',
- 'enc_SequenceVariant_SS',
- 'enc_AcquisitionPlane_SAG',
- 'enc_AcquisitionDuration_missing',
- 'enc_PixelSpacing_y',
- 'enc_NumberOfAverages',
- 'enc_EchoTime',
- 'enc_ImagesInSeries',
- 'enc_PixelSpacing_x',]
 
 class LiverDataset(Dataset):
     """
@@ -143,16 +79,24 @@ class LiverDataset(Dataset):
         aggregated_metadata: If True, uses aggregated metadata per series.
         use_preselected_features: If True, uses a predefined subset of metadata features.
         exclude_contrast_yn: If True, excludes 'label_Contrast' from classification labels.
-    
-    Returns:
-        Training mode: (images, metadata, targets, masks)
-        Inference mode: (images, metadata)
-        
-    Example:
+        sampling_type: Slice sampling strategy – ``"equidistant"`` (default) or
+            ``"random"``.  Passed to :meth:`open_dicom_slice_from_series`.
+
+    The ``__getitem__`` return value depends on ``is_infer``:
+
+    * **Training** (``is_infer=False``):  
+      ``(images, metadata, targets, masks)`` where *images* has shape
+      ``(n_slices, H, W)`` and *targets* / *masks* are tuples of tensors,
+      one per classification task.
+    * **Inference** (``is_infer=True``):  
+      ``(images, metadata, filepath)``.
+
+    Example::
+
         >>> dataset = LiverDataset(
         ...     num_samples=1000,
         ...     n_slices=3,
-        ...     split=["fold_0", "fold_1", "fold_2"]
+        ...     split=["fold_0", "fold_1", "fold_2"],
         ... )
         >>> dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
     """
@@ -190,6 +134,8 @@ class LiverDataset(Dataset):
             aggregated_metadata: If True, uses aggregated metadata per series.
             use_preselected_features: If True, uses a predefined subset of metadata features.
             exclude_contrast_yn: If True, excludes 'label_Contrast' from classification labels.
+            sampling_type: Slice sampling strategy – ``"equidistant"`` (default)
+                or ``"random"``.
         """
         # Store configuration parameters
         self.num_samples = num_samples
@@ -691,12 +637,8 @@ def get_infer_dataloader(
 
 
 if __name__ == "__main__":
-    """
-    Example usage and testing of the LiverDataset.
-    
-    This script demonstrates how to create a dataset, get label information,
-    and iterate through batches to inspect data shapes and content.
-    """
+    # Example usage and testing of the LiverDataset.
+    # Demonstrates how to create a dataset, inspect label info, and iterate batches.
     print("LiverDataset Demo")
     print("=" * 50)
     
