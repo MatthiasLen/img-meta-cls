@@ -56,7 +56,6 @@ class Trainer:
                  tb_logger=None,
                  logger=None,
                  patience: int = 5,
-                 img_ft_only: bool = False,
                  task_weights: Union[list, None] = None,
                  use_mixed_precision: bool = True,
                  incl_regression: bool = True):
@@ -69,7 +68,6 @@ class Trainer:
         self.tb_logger = tb_logger
         self.logger = logger
         self.patience = patience
-        self.img_ft_only = img_ft_only
         self.task_weights = task_weights if task_weights is not None else [1.0] * 7
         self.use_mixed_precision = use_mixed_precision
         self.incl_regression = incl_regression
@@ -113,8 +111,7 @@ class Trainer:
             images, metadata, targets, masks = batch
 
             images = images.to(self.device)
-            if not self.img_ft_only:
-                metadata = metadata.to(self.device)
+            metadata = metadata.to(self.device)
             targets = [t.to(self.device) for t in targets]
             masks = [m.to(self.device) for m in masks]
 
