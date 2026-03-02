@@ -37,11 +37,12 @@ from torch.utils.data import DataLoader, Dataset
 
 from IMC.data.augment import augment
 from IMC.data.dicom_tag_encoding import encode_dicom_tags_by_version
+from IMC.data.constants import ADNI_LABEL_NAMES
 
 logger = logging.getLogger("IMC")
 
-from dotenv import load_dotenv
-load_dotenv()
+# from dotenv import load_dotenv
+# load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Environment-variable based configuration
@@ -55,17 +56,6 @@ ADNI_LABEL_CSV_PATH = os.getenv(
     "/home/tuan.truong/codebase/IMC/labels/labels_ADNI_local_20260224.csv",
 )
 logger.info(f"ADNI_LABEL_CSV_PATH: {ADNI_LABEL_CSV_PATH}")
-
-# GCS prefix that appears in the label CSV Filepath column
-
-# ---------------------------------------------------------------------------
-# Label definitions
-# ---------------------------------------------------------------------------
-ADNI_LABEL_NAMES: Dict[str, List[str]] = {
-    "label_AcquisitionPlane": ["AX", "COR", "SAG", "na"],
-    "label_SequenceContrast": ["ASL", "CAL", "DWI", "OTHER", "PD", "T1", "T2", "T2FLAIR", "na"],
-    "label_Localizer": ["yes", "no", "na"],
-}
 
 
 class ADNIDataset(Dataset):

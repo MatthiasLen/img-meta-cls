@@ -37,7 +37,6 @@ from IMC.data.augment import augment3d
 from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES
 
 logger = logging.getLogger('IMC')
-
 # Environment variables should be set by the training script
 LOCAL_DATASET_PATH = os.getenv("LOCAL_DATASET_PATH")
 LABEL_CSV_PATH = os.getenv("LABEL_CSV_PATH")
