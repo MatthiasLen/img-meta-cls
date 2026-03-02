@@ -7,7 +7,7 @@ torch or other heavy libraries, making them safe to import in lightweight
 inference environments.
 """
 
-# Default label mappings for medical imaging classification
+# Default label mappings for medical imaging classification (PV.ai labels)
 DEFAULT_LABEL_NAMES = {
     "label_SequenceType": [
         "T1", "T2", "DWI", "ADC", "SUB", "DIXON_F", 
@@ -31,6 +31,15 @@ DUKE_LABEL_NAMES = {
     "label_Localizer": ["yes", "no", "na"],
 }
 
+DUKE_ORIGINAL_LABEL_NAMES = {
+    "SequenceType_Code_norm": ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']
+}
+
+ADNI_LABEL_NAMES = {
+    "label_AcquisitionPlane": ["AX", "COR", "SAG", "na"],
+    "label_SequenceContrast": ["ASL", "CAL", "DWI", "OTHER", "PD", "T1", "T2", "T2FLAIR", "na"],
+    "label_Localizer": ["yes", "no", "na"],
+}
 # Selected DICOM metadata features for model inference
 # These features are extracted from encoded DICOM tags and used as input
 # to the neural network model alongside image data
@@ -68,3 +77,20 @@ SELECTED_FEATURES = [
     'enc_ImagesInSeries',
     'enc_PixelSpacing_x',
 ]
+
+DUKE_MAP_LABELS: dict[str, dict[str, str]] = {
+    "label_SequenceType": {
+        "SUB": "OTHER",
+        "BOLUS": "OTHER",
+        "DIXON_F": "OTHER",
+    },
+    "label_AcquisitionPlane": {
+        "SAG": "OTHER",
+        "ORTHO": "OTHER",
+        "ROT": "OTHER",
+    },
+    "label_ContrastPhase": {
+        "hepa": "late",
+        "trans": "late",
+    },
+}

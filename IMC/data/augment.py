@@ -6,6 +6,7 @@ Version: 2025-09-29
 import logging
 # import elasticdeform
 import numpy as np
+from scipy.ndimage import rotate, zoom
 
 from skimage.filters import gaussian
 
@@ -18,7 +19,7 @@ DEFAULT2D = {
     "crop": "random_center",
     "flip": True,
     "rot90": True,
-    "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.4},
+    "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.0},
     "noise": {"max_std": 0.1, "rate": 0.4, "fixed": False},
     "gamma": {"min_log_gamma": -0.2231, "max_log_gamma": 0.1823, "rate": 0.4},
     "blur": {"max_sigma": 2.0, "rate": 0.4, "fixed": False},
@@ -66,11 +67,49 @@ ZSCORENONE2D = {
     "normalize": "zscore",
 }
 
+IMAGENET299_CENTER = {
+    "patch_size": 299,
+    "crop": "center",
+    "flip": False,
+    "rot90": False,
+    "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.0},
+    "noise": {"max_std": 0.0, "rate": 0.0, "fixed": False},
+    "gamma": {"min_log_gamma": 0.0, "max_log_gamma": 0.0, "rate": 0.0},
+    "blur": {"max_sigma": 0.0, "rate": 0.0, "fixed": False},
+    "project": "none",
+    "normalize": "imagenet",
+}
+
+DEFAULT3D = {
+    "flip": True,
+    "rotate": {"max_angle": 15, "rate": 0.5},
+    "scale": {"min_zoom": 0.9, "max_zoom": 1.1, "rate": 0.5},
+    "elastic": {"num_control_points": 5, "sigma_frac": 0.1, "rate": 0.0},
+    "noise": {"max_std": 0.1, "rate": 0.4},
+    "gamma": {"min_log_gamma": -0.2231, "max_log_gamma": 0.1823, "rate": 0.4},
+    "blur": {"max_sigma": 1.5, "rate": 0.2},
+    "normalize": "none",
+}
+
+NONE3D = {
+    "flip": False,
+    "rotate": {"rate": 0.0},
+    "scale": {"rate": 0.0},
+    "elastic": {"rate": 0.0},
+    "noise": {"rate": 0.0},
+    "gamma": {"rate": 0.0},
+    "blur": {"rate": 0.0},
+    "normalize": "none",
+}
+
 VALID_CONFIGURATIONS = {
     "DEFAULT2D": DEFAULT2D,
     "ZSCOREDEFAULT2D": ZSCOREDEFAULT2D,
     "NONE2D": NONE2D,
-    "ZSCORENONE2D": ZSCORENONE2D
+    "ZSCORENONE2D": ZSCORENONE2D,
+    "IMAGENET299_CENTER": IMAGENET299_CENTER,
+    "DEFAULT3D": DEFAULT3D,
+    "NONE3D": NONE3D,
 }
 
 
@@ -383,6 +422,13 @@ def augment(image: np.ndarray, augment_conf: str = "DEFAULT2D") -> np.ndarray:
         image = image - image_mean
         if image_std > 0:
             image = image / image_std
+    elif augment_dict["normalize"] == "imagenet":
+        # Apply ImageNet-style normalization to single-channel grayscale
+        # Scale to [0,1], then use mean/std approximated for grayscale
+        imin, imax = image.min(), image.max()
+        if imax > imin:
+            image = (image - imin) / (imax - imin)
+        image = (image - 0.485) / 0.229
 
     image = blur(image, **augment_dict["blur"])
 
@@ -395,3 +441,90 @@ def augment(image: np.ndarray, augment_conf: str = "DEFAULT2D") -> np.ndarray:
     image = project(image, augment_dict["project"])
 
     return image
+
+def _flip3d(volume: np.ndarray) -> np.ndarray:
+    """Randomly flip the 3D volume along each axis."""
+    if np.random.rand() < 0.5:
+        volume = np.flip(volume, axis=0)
+    if np.random.rand() < 0.5:
+        volume = np.flip(volume, axis=1)
+    if np.random.rand() < 0.5:
+        volume = np.flip(volume, axis=2)
+    return volume
+
+def _rotate3d(volume: np.ndarray, max_angle: int, rate: float) -> np.ndarray:
+    """Randomly rotate the 3D volume around each axis."""
+    if np.random.rand() < rate:
+        angle_x = np.random.uniform(-max_angle, max_angle)
+        angle_y = np.random.uniform(-max_angle, max_angle)
+        angle_z = np.random.uniform(-max_angle, max_angle)
+        volume = rotate(volume, angle_x, axes=(1, 2), reshape=False, order=1, mode='nearest')
+        volume = rotate(volume, angle_y, axes=(0, 2), reshape=False, order=1, mode='nearest')
+        volume = rotate(volume, angle_z, axes=(0, 1), reshape=False, order=1, mode='nearest')
+    return volume
+
+def _scale3d(volume: np.ndarray, min_zoom: float, max_zoom: float, rate: float) -> np.ndarray:
+    """Randomly scale the 3D volume."""
+    if np.random.rand() < rate:
+        zoom_factor = np.random.uniform(min_zoom, max_zoom)
+        zoomed_volume = zoom(volume, zoom_factor, order=1)
+
+        # Crop or pad to original size
+        orig_shape = volume.shape
+        new_shape = zoomed_volume.shape
+
+        start = [(ns - os) // 2 for ns, os in zip(new_shape, orig_shape)]
+        end = [s + os for s, os in zip(start, orig_shape)]
+
+        if zoom_factor > 1:
+            volume = zoomed_volume[start[0]:end[0], start[1]:end[1], start[2]:end[2]]
+        else:
+            padded_volume = np.zeros(orig_shape)
+            padded_volume[ -start[0]:-start[0]+new_shape[0],-start[1]:-start[1]+new_shape[1], -start[2]:-start[2]+new_shape[2]] = zoomed_volume
+            volume = padded_volume
+    return volume
+
+def _elastic3d(volume: np.ndarray, num_control_points: int, sigma_frac: float, rate: float) -> np.ndarray:
+    """Apply elastic deformation to the 3D volume."""
+    if np.random.rand() < rate:
+        max_shape = np.max(np.array(volume.shape))
+        sigma = sigma_frac * max_shape / num_control_points
+        volume = elasticdeform.deform_random_grid(volume, sigma=sigma, points=num_control_points, order=1)
+    return volume
+
+
+def augment3d(volume: np.ndarray, conf: str = "DEFAULT3D") -> np.ndarray:
+    """
+    Augment the 3D volume using the specified augmentation configuration.
+    """
+    log.debug(f"== augmenting 3D volume with config {conf} ==")
+
+    augment_dict = VALID_CONFIGURATIONS.get(conf, NONE3D)
+
+    if augment_dict.get("flip", False):
+        volume = _flip3d(volume)
+
+    if augment_dict.get("rotate", {}).get("rate", 0.0) > 0:
+        volume = _rotate3d(volume, **augment_dict["rotate"])
+
+    if augment_dict.get("scale", {}).get("rate", 0.0) > 0:
+        volume = _scale3d(volume, **augment_dict["scale"])
+
+    if augment_dict.get("elastic", {}).get("rate", 0.0) > 0:
+        volume = _elastic3d(volume, **augment_dict["elastic"])
+
+    if augment_dict.get("blur", {}).get("rate", 0.0) > 0:
+        volume = blur(volume, **augment_dict["blur"])
+
+    if augment_dict.get("noise", {}).get("rate", 0.0) > 0:
+        volume = noise(volume, **augment_dict["noise"])
+
+    if augment_dict.get("gamma", {}).get("rate", 0.0) > 0:
+        volume = gamma(volume, **augment_dict["gamma"])
+
+    if augment_dict["normalize"] == "zscore":
+        mean, std = np.mean(volume), np.std(volume)
+        volume = (volume - mean) / (std + 1e-8)
+
+    return volume
+

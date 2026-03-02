@@ -1,172 +1,127 @@
+"""Network 06: Pixel-Only (Image-Only) Classifier for 2-D Single-Slice Inputs.
+
+This module implements :class:`PixelOnlyModel`, an image-only MRI series
+classifier that operates on **single slices** or small stacks of 2-D slices.
+It is designed for the Duke Liver MRI dataset and performs single-task
+classification of ``SequenceType_Code_norm``, although the multi-task head
+supports extending to multiple targets.
+
+Architecture overview
+---------------------
+::
+
+    Input: (B, N_slices, C, H, W)
+              |
+              v
+    MultiSliceImageEncoder          ← 2-D CNN backbone (e.g. DenseNet-121)
+    (B, N_slices, feat_dim)
+              |
+         Mean-pool over slices
+    (B, feat_dim)
+              |
+              v
+    MultiTaskHead                   ← one linear classifier per task
+    list[(B, n_classes_i), …]       ← logits per task
+
+For optional RF-gated inference (SequenceType_Code_norm), see
+``net6/infer.py`` which combines these image logits with a Random Forest
+trained on tabular metadata (``net6/train_rf.py``).
+
+Version: 0.6
 """
 
-Description like in the other network.py files ? 
-
-Could be helpfulto understand the "evolution".
-
-"""
-
-import torch 
-import torch.nn as nn
 from IMC.nn.image_encoder import MultiSliceImageEncoder
-from IMC.nn.metadata_encoder import MetadataEncoder
 from IMC.nn.multi_task_head import MultiTaskHead
-from IMC.helper import normalize_per_sample
-from IMC.network04 import SliceFeatureFusion, BiDirectionalCrossModalAttentionFusion
-import logging 
-import os 
+
+import torch
+import torch.nn as nn
+import logging
+import os
 
 logger = logging.getLogger('IMC')
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
 
-class MultiTaskHeadFusion(nn.Module):
-    def __init__(self, image_emb_dim: int, metadata_emb_dim: int, fused_emb_dim: int, num_classes_dict: dict, dropout: float = 0.1):
-        super(MultiTaskHeadFusion, self).__init__()
-        self.fuser = nn.ModuleDict()
-        self.classifier = nn.ModuleDict()
 
-        for task_name, n_classes in num_classes_dict.items():
-            self.fuser[task_name] = BiDirectionalCrossModalAttentionFusion(
-                image_emb_dim=image_emb_dim,
-                metadata_emb_dim=metadata_emb_dim,
-                output_dim=fused_emb_dim
-            )
-            self.classifier[task_name] = self.make_task_head(
-                in_dim=fused_emb_dim,
-                out_dim=n_classes,
-                dropout=dropout
-            )
-            
-    def make_task_head(self, in_dim: int, out_dim: int, dropout: float) -> nn.Sequential:
-        """
-        Creates a task-specific head (MLP) for classification.
+class PixelOnlyModel(nn.Module):
+    """Image-only classifier for Duke single-slice (or few-slice) MRI series.
+
+    This model encodes one or more 2-D image slices through a shared CNN
+    backbone, mean-pools the resulting per-slice feature vectors, and passes
+    the pooled representation to a multi-task classification head.
+
+    No metadata or tabular features are used.  For RF-gated inference that
+    combines these image predictions with a separately-trained Random Forest,
+    see ``IMC.net6.infer``.
+
+    Args:
+        num_classes_dict: Mapping from task name to number of output classes,
+            e.g. ``{"SequenceType_Code_norm": 13}``.
+        dropout: Dropout probability applied inside the :class:`MultiTaskHead`.
+        image_backbone: Name of the 2-D CNN backbone passed to
+            :class:`~IMC.nn.image_encoder.MultiSliceImageEncoder`
+            (e.g. ``"densenet121"``, ``"resnet50"``).
+
+    Example::
+
+        model = PixelOnlyModel(
+            num_classes_dict={"SequenceType_Code_norm": 13},
+            image_backbone="densenet121",
+        )
+        images = torch.randn(4, 1, 3, 224, 224)  # (B, N_slices, C, H, W)
+        logits = model(images)  # list of tensors [(4, 13)]
+    """
+
+    def __init__(
+        self,
+        num_classes_dict: dict,
+        dropout: float = 0.1,
+        image_backbone: str = "densenet121",
+    ):
+        super().__init__()
+        self.num_classes_dict = num_classes_dict
+        self.image_encoder = MultiSliceImageEncoder(backbone=image_backbone)
+        image_feat_dim = self.image_encoder.get_feature_dimension()
+        self.image_head = MultiTaskHead(image_feat_dim, num_classes_dict, dropout=dropout, incl_regression=False)
+        self.softmax = nn.Softmax(dim=-1)
+
+
+    def get_image_logits(self, image_slices: torch.Tensor):
+        """Compute per-task classification logits from image slices.
+
         Args:
-            in_dim (int): Input dimension
-            out_dim (int): Output dimension (number of classes)
-            
-        Returns:
-            nn.Sequential: Task head module
-        """
-        hidden_dim = (in_dim + out_dim) // 2
+            image_slices: Float tensor of shape ``(B, N_slices, C, H, W)``.
 
-        return nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, out_dim),
-        )
-    def forward(self, image_emb: torch.Tensor, metadata_emb: torch.Tensor):
+        Returns:
+            list[torch.Tensor]: One tensor of shape ``(B, n_classes_i)`` per
+            task, in the same order as *num_classes_dict*.
         """
+        image_feats = self.image_encoder(image_slices)
+        image_feats_pooled = image_feats.mean(dim=1)
+        return self.image_head(image_feats_pooled)
+
+    def get_image_probs(self, image_slices: torch.Tensor):
+        """Compute per-task softmax probabilities from image slices.
+
         Args:
-            x (torch.Tensor): Joint feature embedding (B, input_dim)
-            
+            image_slices: Float tensor of shape ``(B, N_slices, C, H, W)``.
+
         Returns:
-            list: head logits
+            list[torch.Tensor]: One probability tensor of shape
+            ``(B, n_classes_i)`` per task.
         """
-        outputs = []
-        for task_name in self.fuser.keys():
-            fused_emb = self.fuser[task_name](image_emb, metadata_emb)
-            logits = self.classifier[task_name](fused_emb)
-            outputs.append(logits)
-        return outputs        
-            
-class LateStageMRISequenceClassifier(nn.Module):
-    def __init__(self, num_classes_dict: dict, metadata_input_dim: int, metadata_embed_dim: int = 128, img_enc_backbone: str = "densenet", fused_feat_dim: int = 256, output_emb_dim: int = 128):
-        super(LateStageMRISequenceClassifier, self).__init__()
-        self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone)
-        slice_feat_dim = self.image_encoder.get_feature_dimension()
-        self.slice_fusion = SliceFeatureFusion(
-            slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim
-        )
+        image_logits = self.get_image_logits(image_slices)
+        return [self.softmax(logits) for logits in image_logits]
 
-        self.metadata_encoder = MetadataEncoder(
-            metadata_input_dim, embed_dim=metadata_embed_dim, imputer='contextual'
-        )
+    def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor | None = None):
+        """Run the full forward pass.
 
-        self.multi_task_head = MultiTaskHeadFusion(
-            image_emb_dim=fused_feat_dim,
-            metadata_emb_dim=metadata_embed_dim,
-            fused_emb_dim=output_emb_dim,
-            num_classes_dict=num_classes_dict,
-            dropout=0.1
-        )
-        
-    def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor):
-        if DEBUG_MODE:
-            logger.debug(f"Input image_slices shape: {image_slices.shape}")
-            logger.debug(f"Input metadata shape: {metadata.shape}")
-            logger.debug(f"Input stats - Images: min={image_slices.min():.3f}, max={image_slices.max():.3f}, mean={image_slices.mean():.3f}")
-            logger.debug(f"Input stats - Metadata: min={metadata.min():.3f}, max={metadata.max():.3f}, mean={metadata.mean():.3f}")
-            has_nan = torch.isnan(metadata).any()
-            has_inf = torch.isinf(metadata).any()
-            if has_nan or has_inf:
-                logger.error(f"Metadata input contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-        
-        slice_feats = self.image_encoder(image_slices)
-        fused_image_feat = self.slice_fusion(slice_feats)
+        Args:
+            image_slices: Float tensor of shape ``(B, N_slices, C, H, W)``.
+            metadata: Unused placeholder for :class:`~IMC.trainer.Trainer`
+                compatibility.  Pass ``None`` or omit.
 
-        if DEBUG_MODE:
-            logger.debug(f"Fused image feature shape: {fused_image_feat.shape}")
-            logger.debug(f"Fused image feature stats: min={fused_image_feat.min():.3f}, max={fused_image_feat.max():.3f}, mean={fused_image_feat.mean():.3f}")
-            has_nan = torch.isnan(fused_image_feat).any()
-            has_inf = torch.isinf(fused_image_feat).any()
-            if has_nan or has_inf:
-                logger.debug(f"Fused image feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-        
-
-        metadata_feat = self.metadata_encoder(metadata)
-        metadata_feat = normalize_per_sample(metadata_feat)
-
-        if DEBUG_MODE:
-            logger.debug(f"Metadata feature shape: {metadata_feat.shape}")
-            logger.debug(f"Metadata feature stats: min={metadata_feat.min():.3f}, max={metadata_feat.max():.3f}, mean={metadata_feat.mean():.3f}")
-            has_nan = torch.isnan(metadata_feat).any()
-            has_inf = torch.isinf(metadata_feat).any()
-            if has_nan or has_inf:
-                logger.debug(f"Metadata feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-        
-        outputs = self.multi_task_head(fused_image_feat, metadata_feat)
-        if DEBUG_MODE:
-            for i, r in enumerate(outputs):
-                logger.debug(f"Output logits for task {i} shape: {r.shape}")
-                logger.debug(f"Output logits for task {i} stats: min={r.min():.3f}, max={r.max():.3f}, mean={r.mean():.3f}")
-                has_nan = torch.isnan(r).any()
-                has_inf = torch.isinf(r).any()
-                if has_nan or has_inf:
-                    logger.debug(f"Output logits for task {i} contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-                    
-        return outputs
-    
-if __name__ == "__main__":
-    # Test the model with dummy data
-    batch_size = 4
-    num_slices = 3
-    channels = 1
-    height = 128
-    width = 128
-    metadata_input_dim = 50
-
-    dummy_images = torch.randn(batch_size, num_slices, channels, height, width)
-    dummy_metadata = torch.randn(batch_size, num_slices, metadata_input_dim)
-
-    num_classes_dict = {
-        "label_Sequence": 7,
-        "label_Plane": 4,
-        "label_BodyRegion": 5,
-    }
-    model = LateStageMRISequenceClassifier(
-        num_classes_dict=num_classes_dict,
-        metadata_input_dim=metadata_input_dim,
-        metadata_embed_dim=64,
-        img_enc_backbone="densenet",
-        fused_feat_dim=128,
-        output_emb_dim=64
-    )
-    outputs = model(dummy_images, dummy_metadata)
-    for task_name, output in zip(num_classes_dict.keys(), outputs):
-        print(f"Task: {task_name}, Output shape: {output.shape}")
+        Returns:
+            list[torch.Tensor]: One logit tensor of shape ``(B, n_classes_i)``
+            per task, in the same order as *num_classes_dict*.
+        """
+        return self.get_image_logits(image_slices)

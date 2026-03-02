@@ -68,35 +68,24 @@ def plot_batch_per_sample(batch, figsize=(15, 10), title = None, id = 1):
 
 def normalize_per_sample(batch):
     """
-    Normalize each sample in the batch independently:
-    - Compute mean and std over all slices and pixels of that sample.
-    - Normalize all slices in that sample with these stats.
-
-    Args:
-        batch (Tensor): shape (B, N, H, W)
-
-    Returns:
-        Tensor: normalized batch, same shape as input
+    Normalize each sample in the batch independently with z-score:
+    - Compute mean and std over all voxels of that sample.
+    - Supports 3D (B, N, H, W), 4D (B, C, H, W), and 5D (B, C, D, H, W).
     """
     B = batch.shape[0]
-    # Compute mean and std per sample across all slices and pixels
-    # Shape of mean/std: (B, 1, 1, 1) to broadcast correctly
-    if batch.ndim == 4:
+    if batch.ndim == 5:
+        mean = batch.view(B, -1).mean(dim=1).view(B, 1, 1, 1, 1)
+        std = batch.view(B, -1).std(dim=1).view(B, 1, 1, 1, 1)
+    elif batch.ndim == 4:
         mean = batch.view(B, -1).mean(dim=1).view(B, 1, 1, 1)
         std = batch.view(B, -1).std(dim=1).view(B, 1, 1, 1)
     elif batch.ndim == 3:
         mean = batch.view(B, -1).mean(dim=1).view(B, 1, 1)
         std = batch.view(B, -1).std(dim=1).view(B, 1, 1)
     else:
-        raise ValueError("Input batch must be 3D or 5D tensor")
-    
-    # Avoid division by zero by clamping std to a minimum value (e.g. 1e-8)
+        raise ValueError("Input batch must be 3D, 4D or 5D tensor")
     std = std.clamp(min=1e-8)
-    
-    # Normalize batch with broadcasting
-    batch_norm = (batch - mean) / std
-
-    return batch_norm
+    return (batch - mean) / std
 
 def count_parameters(model):
     """

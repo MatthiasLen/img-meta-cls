@@ -1,12 +1,24 @@
 """
-Local Liver Dataset Module for Medical Image Classification
+Local Liver Dataset for Multi-Modal Medical Image Classification.
 
-This module provides a PyTorch Dataset implementation for loading and processing
-liver MRI/CT medical images from a local filesystem. It supports multi-slice
-sampling, metadata encoding, and various augmentation strategies.
+This module implements a PyTorch Dataset for loading and processing liver MRI/CT
+medical images and associated DICOM metadata from a local filesystem. It is a key
+component of the IMC (Image-Metadata-Classifier) project, providing a flexible data
+pipeline for multi-modal deep learning.
 
-Author: Melanie Dohmen, Matthias Lenga, Tuan Truong
-Date: 2025
+The dataset supports:
+- Multi-slice sampling from 3D DICOM series using various strategies.
+- Loading and encoding of extensive DICOM metadata features.
+- Aggregated and per-slice metadata handling.
+- Configurable data augmentation pipelines for medical images.
+- Train, validation, test, and inference modes with appropriate data splits.
+- Graceful handling of missing data, corrupted files, and inconsistent metadata.
+
+This dataloader is optimized for local development and can be swapped with
+`liver_dataloader_gcp.py` for cloud-based training on Google Cloud Storage.
+
+Authors: Melanie Dohmen, Matthias Lenga, Tuan Truong
+Date: 2026
 """
 
 import logging
@@ -24,12 +36,9 @@ from torch.utils.data import DataLoader, Dataset
 
 from IMC.data.augment import augment
 from IMC.data.dicom_tag_encoding import encode_dicom_tags_by_version
-import logging 
+from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES, DEFAULT_LABEL_NAMES, SELECTED_FEATURES
 
 logger = logging.getLogger('IMC')
-
-# from dotenv import load_dotenv
-# load_dotenv()
 
 # Configuration constants
 LOCAL_DATASET_PATH = os.getenv("LOCAL_DATASET_PATH", None)
@@ -38,31 +47,6 @@ METADATA_PATH = os.getenv("METADATA_PATH", None)
 logger.info(f"METADATA_PATH: {METADATA_PATH}")
 LABEL_CSV_PATH = os.getenv("LABEL_CSV_PATH", None)
 logger.info(f"LABEL_CSV_PATH: {LABEL_CSV_PATH}")
-
-# Default label mappings for medical imaging classification
-DEFAULT_LABEL_NAMES = {
-    "label_SequenceType": [
-        "T1", "T2", "DWI", "ADC", "SUB", "DIXON_F", 
-        "DIXON_IN", "DIXON_OPP", "BOLUS", "OTHER", "na"
-    ],
-    "label_FatSat": ["yes", "no", "na"],
-    "label_MRCP": ["yes", "no", "na"],
-    "label_AcquisitionPlane": ["AX", "COR", "SAG", "ORTHO", "ROT", "na"],
-    "label_ContrastPhase": ["pre", "art", "portven", "trans", "hepa", "na"],
-    "label_Contrast": ["pre", "post", "na"],
-    "label_Localizer": ["yes", "no", "na"],
-}
-
-DUKE_LABEL_NAMES = {
-    "label_SequenceType": ["T1", "T2", "DWI", "ADC", "DIXON_IN", "DIXON_OPP", "OTHER", "na"],
-    "label_FatSat": ["yes", "no", "na"],    
-    "label_MRCP": ["yes", "no", "na"],
-    "label_AcquisitionPlane": ["AX", "COR", "OTHER", "na"],
-    "label_ContrastPhase": ["pre", "art", "portven", "late", "na"],
-    "label_Contrast": ["pre", "post", "na"],
-    "label_Localizer": ["yes", "no", "na"],
-}
-
 
 
 class LiverDataset(Dataset):
@@ -89,16 +73,30 @@ class LiverDataset(Dataset):
         augment_conf: Augmentation configuration string (e.g., "NONE2D").
         split: List of fold names to include (e.g., ["fold_0", "fold_1"]).
         is_infer: If True, returns only images and metadata (no labels).
-    
-    Returns:
-        Training mode: (images, metadata, targets, masks)
-        Inference mode: (images, metadata)
-        
-    Example:
+        local_dataset_path: Path to the local dataset root directory.
+        metadata_path: Path to the metadata CSV or Parquet file.
+        label_csv_path: Path to the labels CSV file.
+        aggregated_metadata: If True, uses aggregated metadata per series.
+        use_preselected_features: If True, uses a predefined subset of metadata features.
+        exclude_contrast_yn: If True, excludes 'label_Contrast' from classification labels.
+        sampling_type: Slice sampling strategy – ``"equidistant"`` (default) or
+            ``"random"``.  Passed to :meth:`open_dicom_slice_from_series`.
+
+    The ``__getitem__`` return value depends on ``is_infer``:
+
+    * **Training** (``is_infer=False``):  
+      ``(images, metadata, targets, masks)`` where *images* has shape
+      ``(n_slices, H, W)`` and *targets* / *masks* are tuples of tensors,
+      one per classification task.
+    * **Inference** (``is_infer=True``):  
+      ``(images, metadata, filepath)``.
+
+    Example::
+
         >>> dataset = LiverDataset(
         ...     num_samples=1000,
         ...     n_slices=3,
-        ...     split=["fold_0", "fold_1", "fold_2"]
+        ...     split=["fold_0", "fold_1", "fold_2"],
         ... )
         >>> dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
     """
@@ -107,7 +105,7 @@ class LiverDataset(Dataset):
         self,
         num_samples: Optional[int] = 100,
         n_slices: int = 3,
-        img_size: int = 224,
+        img_size: int = 256,
         label_names: Optional[Dict[str, List[str]]] = None,
         augment_conf: str = "NONE2D",
         split: List[str] | None = ["fold_0"],
@@ -115,16 +113,39 @@ class LiverDataset(Dataset):
         local_dataset_path: Optional[str] = None,
         metadata_path: Optional[str] = None,
         label_csv_path: Optional[str] = None,
+        aggregated_metadata: bool = False,
+        use_preselected_features: bool = False,
+        exclude_contrast_yn: bool = False,
+        sampling_type: str = "equidistant",
     ) -> None:
-        """Initialize the LiverDataset with specified configuration."""
+        """Initialize the LiverDataset with specified configuration.
+
+        Args:
+            num_samples: Maximum number of samples to load. If None, loads all.
+            n_slices: Number of slices to sample from each DICOM series.
+            img_size: Target image size for resizing.
+            label_names: Dictionary mapping label categories to their possible values.
+            augment_conf: Augmentation configuration string (e.g., "NONE2D").
+            split: List of fold names to include (e.g., ["fold_0", "fold_1"]).
+            is_infer: If True, returns only images and metadata (no labels).
+            local_dataset_path: Path to the local dataset root directory.
+            metadata_path: Path to the metadata CSV or Parquet file.
+            label_csv_path: Path to the labels CSV file.
+            aggregated_metadata: If True, uses aggregated metadata per series.
+            use_preselected_features: If True, uses a predefined subset of metadata features.
+            exclude_contrast_yn: If True, excludes 'label_Contrast' from classification labels.
+            sampling_type: Slice sampling strategy – ``"equidistant"`` (default)
+                or ``"random"``.
+        """
         # Store configuration parameters
         self.num_samples = num_samples
         self.n_slices = n_slices
-        self.img_size = img_size
-        self.label_names = label_names if label_names is not None else DEFAULT_LABEL_NAMES
+        self.img_size = img_size            
+        self.label_names = label_names.copy() if label_names is not None else DEFAULT_LABEL_NAMES.copy()
+        if exclude_contrast_yn:
+            self.label_names.pop("label_Contrast", None)
         self.augment_conf = augment_conf
         self.is_infer = is_infer
-        
         # Initialize data containers
         self.labels: List[Dict[str, Any]] = []
         self.path_list: List[str] = []
@@ -135,9 +156,14 @@ class LiverDataset(Dataset):
         self.local_dataset_path = local_dataset_path if local_dataset_path is not None else LOCAL_DATASET_PATH
         self.metadata_path = metadata_path if metadata_path is not None else METADATA_PATH
         self.label_csv_path = label_csv_path if label_csv_path is not None else LABEL_CSV_PATH
+        self.aggregated_metadata = aggregated_metadata
+        logger.info("Using aggregated metadata: {}".format(self.aggregated_metadata))
+        self.use_preselected_features = use_preselected_features
+        self.sampling_type = sampling_type
 
         # Load and process metadata
         self._load_metadata_and_labels(split)
+        self.num_metadata_features = len(SELECTED_FEATURES) if use_preselected_features else len(self.metadata_df.columns)
         
         logger.info(f"Dataset initialized with {len(self.path_list)} samples")
 
@@ -158,13 +184,19 @@ class LiverDataset(Dataset):
             logger.info(f"Loaded {len(labels_df)} samples from label CSV")
             
             # Encode metadata using DICOM tag encoding
-            if self.metadata_path and os.path.exists(self.metadata_path):
-                metadata_df = pd.read_csv(self.metadata_path)
-                logger.info(f"Loaded {len(metadata_df)} samples from metadata CSV")
+            if self.metadata_path and os.path.exists(self.metadata_path) and self.metadata_path.endswith(".parquet"):
+                metadata_df = pd.read_parquet(self.metadata_path)
+                logger.info(f"Loaded {len(metadata_df)} samples from metadata Parquet {self.metadata_path}")
             else:
+                # Fallback to legacy DICOM tag encoding if Parquet metadata is not found
+                logger.warning("Metadata Parquet file not found. Falling back to legacy DICOM encoding.")
                 metadata_df = encode_dicom_tags_by_version(labels_df, dicom_encoding_version="brain")
             metadata_df = metadata_df.set_index("Filepath")
             labels_df = labels_df.set_index("Filepath")
+
+            if self.use_preselected_features:
+                logger.info("Using preselected features for metadata")
+                metadata_df = metadata_df[SELECTED_FEATURES]
             
             # Filter by specified splits
             if split is not None:
@@ -236,126 +268,34 @@ class LiverDataset(Dataset):
         
         # Return naturally sorted list
         return natsorted(dicom_files)
-    
-    def _check_combined_series(self, dicom_filepaths: List[Path]) -> bool:
-        """
-        Check if series contains different volumes combined.
-        Select one volume randomly if so.
-        """
-        volume_ids = set()
-        for filepath in dicom_filepaths:
-            ds = dcmread(filepath, stop_before_pixels=True)
-            volume_id = getattr(ds, 'AcquisitionNumber', None)
-            if volume_id is not None:
-                volume_ids.add(volume_id)
-        
-        if len(volume_ids) > 1:
-            selected_volume = random.choice(list(volume_ids))
-            dicom_filepaths = [fp for fp in dicom_filepaths if dcmread(fp, stop_before_pixels=True).AcquisitionNumber == selected_volume]
-            logger.info(f"Multiple volumes detected. Selected volume {selected_volume} with {len(dicom_filepaths)} slices.")
-            return dicom_filepaths
-        return dicom_filepaths
-    
-    def _load_volume(self, dicom_filepaths: List[Path]) -> np.ndarray:
-        """
-        Load a 3D volume from a list of DICOM file paths.
-        
-        Args:
-            dicom_filepaths: List of Path objects pointing to DICOM files.
-        Returns:
-            3D numpy array representing the volume (D, H, W).
-        """
-        # dicom_filepaths = self._check_combined_series(dicom_filepaths)
-        dicom_data = []
-        for filepath in dicom_filepaths:
-            ds = dcmread(filepath)
-            slice_location = getattr(ds, 'SliceLocation', None)
-            if slice_location is None:
-                image_position = getattr(ds, 'ImagePositionPatient', None)
-                if image_position is not None:
-                    slice_position = float(image_position[-1]) if hasattr(image_position, '__getitem__') else float(image_position.value[-1])
-                else:
-                    slice_position = 0.0
-            else:
-                slice_position = float(slice_location)
-            dicom_data.append((slice_position, ds, filepath))
-    
-        # Group slices by patient orientation
-        orientation_groups = {}
-        for slice_position, ds, filepath in dicom_data:
-            orientation = getattr(ds, 'ImageOrientationPatient', None)
-            if orientation is not None:
-                # Convert to tuple for use as dict key
-                orientation_key = tuple(orientation)
-            if orientation_key not in orientation_groups:
-                orientation_groups[orientation_key] = []
-            orientation_groups[orientation_key].append((slice_position, ds, filepath))
-        
-        # Select the orientation group with the most slices
-        if orientation_groups:
-            selected_orientation = max(orientation_groups.keys(), key=lambda k: len(orientation_groups[k]))
-            dicom_data = orientation_groups[selected_orientation]
-            # logger.info(f"Selected orientation {selected_orientation} with {len(dicom_data)} slices from {len(orientation_groups)} orientations.")
-        
-        # Sort slices by position
-        dicom_data.sort(key=lambda x: x[0])
-
-        # Extract pixel arrays
-        volume_slices = []
-        for _, ds, file_path in dicom_data:
-            try:
-                pixel_array = ds.pixel_array
-                
-                # Apply slope and intercept if available (for proper intensity values)
-                if hasattr(ds, 'RescaleSlope') and hasattr(ds, 'RescaleIntercept'):
-                    pixel_array = pixel_array * ds.RescaleSlope + ds.RescaleIntercept
-                
-                volume_slices.append(pixel_array)
-            except Exception as e:
-                logger.warning(f"Warning: Could not read {file_path}: {e}")
-                continue
-
-        try:
-            volume = np.stack(volume_slices, axis=0)
-        except Exception as e:
-            logger.error(f"Error stacking volume slices: {e}")
-            volume = np.zeros((1, self.img_size, self.img_size), dtype=np.float32)
-
-        return volume
-    
-    def _mip(self, volume: np.ndarray) -> np.ndarray:
-        """
-        Compute the Maximum Intensity Projection (MIP) of a 3D volume.
-        
-        Args:
-            volume: 3D numpy array (D, H, W).
-            
-        Returns:
-            2D numpy array (H, W) representing the MIP.
-        """
-        return np.max(volume, axis=0)
 
     def open_dicom_slice_from_series(
-        self, 
+        self,
         path_dicom_folder: str,
-        n_images: int = 1,
-        sampling_type: str = "equidistant"
-    ) -> torch.Tensor:
+        sampling_type: str = "equidistant",
+        n_images: int = 1
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Load and process multiple slices from a DICOM series.
-        
+
         This method samples slices from a DICOM series according to the specified
         sampling strategy, applies augmentation, and returns them as a torch tensor.
-        
+
         Args:
             path_dicom_folder: Path to the DICOM series folder.
-            
+            sampling_type: Slice sampling strategy:
+                - "random": Randomly sample n_images slices
+                - "equidistant": Sample slices evenly spaced across the series
+            n_images: Number of slices to sample from the series.
+
         Returns:
-            Tensor of shape (n_images, 1, H, W) containing the processed slices.
-            
+            Tuple containing:
+                - images: A tensor of shape (n_images, 1, H, W) with the processed image slices.
+                - metadata: A tensor of shape (n_images, D) with the corresponding metadata.
+
         Raises:
             RuntimeError: If no DICOM files are found or if loading fails.
-            
+
         Note:
             - If fewer slices exist than requested, missing slices are filled with zeros
             - Multi-dimensional pixel arrays are replaced with zero arrays
@@ -388,21 +328,38 @@ class LiverDataset(Dataset):
             image = augment(image, self.augment_conf)
             
             # Convert to tensor and add channel dimension
-            images.append(torch.tensor(image, dtype=torch.float32).unsqueeze(0))
-        
-        
-        # Load MIP image
-        volume = self._load_volume(slice_filenames)
-        mip_image = self._mip(volume)
-        mip_image = augment(mip_image, self.augment_conf)
-            
-        # Convert to tensor and add channel dimension
-        mip_image = torch.tensor(mip_image, dtype=torch.float32).unsqueeze(0)  # (1, H, W)
-    
-        images.append(mip_image)
+            arr = image.copy()
+            if isinstance(arr, np.ndarray) and arr.ndim == 3:
+                # Already 3-channel (C,H,W) from IMAGENET299_CENTER
+                images.append(torch.tensor(arr, dtype=torch.float32))
+            else:
+                images.append(torch.tensor(arr, dtype=torch.float32)) # (H, W)
 
-        return torch.stack(images, dim=0)  # (n_images, 1, H, W)
-    
+        # Load metadata (individual dicom files or aggregated)
+        if self.aggregated_metadata:
+            if self.metadata_df.index.to_list()[0].startswith("/home/tuan.truong"):
+                metadata = self.metadata_df.loc[str(Path(self.local_dataset_path) / path_dicom_folder)].to_numpy()
+            else:
+                metadata = self.metadata_df.loc[path_dicom_folder].to_numpy()
+            metadata = torch.tensor(metadata, dtype=torch.float32) # (D,)
+            metadata = metadata.unsqueeze(0).repeat(len(images), 1)  # (N, D)
+        else:
+            metadata = []
+            for slice_idx in slice_indices:
+                if slice_idx is None:
+                    m = torch.full((self.num_metadata_features,), torch.nan, dtype=torch.float32) if not self.use_preselected_features else torch.full((len(SELECTED_FEATURES),), torch.nan, dtype=torch.float32)
+                    metadata.append(m)
+                    continue
+                try:
+                    m = self.metadata_df.loc[str(slice_filenames[slice_idx])].to_numpy()
+                    m = torch.tensor(m, dtype=torch.float32)
+                except:
+                    logger.error(f"Metadata not found for {slice_filenames[slice_idx]}, using NaNs")
+                    m = torch.full((self.num_metadata_features,), torch.nan, dtype=torch.float32) if not self.use_preselected_features else torch.full((len(SELECTED_FEATURES),), torch.nan, dtype=torch.float32)
+                metadata.append(m)
+        # Stack all slices into a single tensor
+        return torch.stack(images, dim=0), torch.stack(metadata, dim=0)  # (N, H, W), (N, D)
+
     def _calculate_slice_indices(
         self, 
         num_slices: int, 
@@ -442,45 +399,40 @@ class LiverDataset(Dataset):
         return slice_indices
 
     def __getitem__(self, idx: int) -> Union[
-        Tuple[torch.Tensor, torch.Tensor],
+        Tuple[torch.Tensor, torch.Tensor, str],
         Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]
     ]:
         """
         Get a single sample from the dataset.
-        
+
         Args:
             idx: Sample index.
-            
+
         Returns:
             For inference mode: (images, metadata, filepath)
             For training mode: (images, metadata, targets, masks)
-            
+
             Where:
                 - images: Tensor of shape (n_slices, 1, H, W)
                 - metadata: Tensor of encoded metadata features
                 - targets: Tuple of label indices for each classification task
                 - masks: Tuple of boolean masks indicating valid (non-"na") labels
-        
+                - filepath: Path to the DICOM series folder (inference only)
+
         Raises:
             IndexError: If idx is out of range.
             Exception: If required labels are missing.
         """
         if idx >= len(self.path_list):
             raise IndexError(f"Index {idx} out of range for dataset of size {len(self.path_list)}")
-        
+
         # Load multi-slice images
-        images = self.open_dicom_slice_from_series(self.path_list[idx], n_images=self.n_slices, sampling_type="equidistant")
-        
-        # Load encoded metadata
-        try:
-            metadata = self.metadata_df.loc[self.path_list[idx]].to_numpy()
-            metadata = torch.tensor(metadata, dtype=torch.float32)
-        except KeyError:
-            logger.warning(f"Metadata not found for {self.path_list[idx]}, using zeros")
-            # Use zero metadata if not found
-            metadata = torch.zeros(88, dtype=torch.float32)  # Adjust size as needed
-        
-        # Return early if in inference mode
+        images, metadata = self.open_dicom_slice_from_series(
+            self.path_list[idx],
+            sampling_type=self.sampling_type,
+            n_images=self.n_slices
+        )
+    
         if self.is_infer:
             return images, metadata, self.path_list[idx]
         
@@ -527,10 +479,13 @@ class LiverDataset(Dataset):
         
         # Masks indicate valid labels (not "na")
         masks = tuple(
-            torch.tensor(label_indices[label_class] != self.label_names[label_class].index("na"))
+            torch.tensor(
+            label_indices[label_class] != self.label_names[label_class].index("na")
+            if "na" in self.label_names[label_class]
+            else True
+            )
             for label_class in self.label_names.keys()
         )
-        
         return targets, masks
 
 
@@ -540,6 +495,7 @@ def get_train_dataloader(
     shuffle: bool = True,
     num_samples: Optional[int] = 100,
     folder_split: List[str] = ["fold_0", "fold_1", "fold_2", "fold_3", "fold_4", "fold_5", "fold_6", "fold_7"],
+    **ds_kwargs: Dict,
 ) -> DataLoader:
     """
     Create a DataLoader for training data.
@@ -550,6 +506,7 @@ def get_train_dataloader(
         shuffle: Whether to shuffle the data.
         num_samples: Maximum number of samples to load (None for all).
         folder_split: List of fold names to include in training set.
+        ds_kwargs: additional keywords to the dataset
         
     Returns:
         Configured DataLoader for training.
@@ -557,7 +514,8 @@ def get_train_dataloader(
     dataset = LiverDataset(
         split=folder_split, 
         num_samples=num_samples, 
-        augment_conf="NONE2D"
+        augment_conf="NONE2D",
+        **ds_kwargs
     )
     return DataLoader(
         dataset,
@@ -573,6 +531,7 @@ def get_valid_dataloader(
     shuffle: bool = False,
     num_samples: Optional[int] = 100,
     folder_split: List[str] = ["fold_8"],
+    **ds_kwargs: Dict,
 ) -> DataLoader:
     """
     Create a DataLoader for validation data.
@@ -583,14 +542,15 @@ def get_valid_dataloader(
         shuffle: Whether to shuffle the data (typically False for validation).
         num_samples: Maximum number of samples to load (None for all).
         folder_split: List of fold names to include in validation set.
-        
+        ds_kwargs: additional keywords to the dataset
     Returns:
         Configured DataLoader for validation.
     """
     dataset = LiverDataset(
         split=folder_split, 
         num_samples=num_samples, 
-        augment_conf="NONE2D"
+        augment_conf="NONE2D",
+        **ds_kwargs
     )
     return DataLoader(
         dataset,
@@ -606,6 +566,7 @@ def get_test_dataloader(
     shuffle: bool = False,
     num_samples: Optional[int] = 100,
     folder_split: List[str] = ["fold_9"],
+    **ds_kwargs: Dict,
 ) -> DataLoader:
     """
     Create a DataLoader for test data.
@@ -616,14 +577,15 @@ def get_test_dataloader(
         shuffle: Whether to shuffle the data (typically False for testing).
         num_samples: Maximum number of samples to load (None for all).
         folder_split: List of fold names to include in test set.
-        
+        ds_kwargs: additional keywords to the dataset
     Returns:
         Configured DataLoader for testing.
     """
     dataset = LiverDataset(
         split=folder_split, 
         num_samples=num_samples, 
-        augment_conf="NONE2D"
+        augment_conf="NONE2D",
+        **ds_kwargs
     )
     return DataLoader(
         dataset,
@@ -640,6 +602,7 @@ def get_infer_dataloader(
     num_samples: Optional[int] = 100,
     folder_split: List[str] = ["fold_9"],
     label_names: Optional[Dict[str, List[str]]] = None,
+    **ds_kwargs: Dict,
 ) -> DataLoader:
     """
     Create a DataLoader for inference (prediction) data.
@@ -662,7 +625,8 @@ def get_infer_dataloader(
         num_samples=num_samples,
         is_infer=True,
         augment_conf="NONE2D",
-        label_names=label_names
+        label_names=label_names,
+        **ds_kwargs
     )
     return DataLoader(
         dataset,
@@ -671,62 +635,22 @@ def get_infer_dataloader(
         num_workers=num_workers,
     )
 
-def plot_samples(images: torch.Tensor, save_path: Optional[str] = None) -> None:
-    """
-    Plot a batch of images using matplotlib.
-    
-    Args:
-        images: Tensor of shape (B, n_slices, 1, H, W)
-        save_path: Optional path to save the figure
-    """
-    import matplotlib.pyplot as plt
-
-    batch_size, n_slices, _, H, W = images.shape
-    
-    # Create a grid: batch_size rows x n_slices columns
-    fig, axes = plt.subplots(batch_size, n_slices, figsize=(n_slices * 3, batch_size * 3))
-    
-    # Handle single row case
-    if batch_size == 1:
-        axes = axes.reshape(1, -1)
-    # Handle single column case
-    if n_slices == 1:
-        axes = axes.reshape(-1, 1)
-    
-    for b in range(batch_size):
-        for s in range(n_slices):
-            ax = axes[b, s]
-            ax.imshow(images[b, s, 0].cpu().numpy(), cmap='gray')
-            ax.axis('off')
-            if b == 0:  # Add slice labels to first row
-                slice_label = "MIP" if s == n_slices - 1 else f"Slice {s+1}"
-                ax.set_title(slice_label)
-    
-    plt.tight_layout()
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
-        print(f"Saved figure to {save_path}")
-    plt.show()
 
 if __name__ == "__main__":
-    """
-    Example usage and testing of the LiverDataset.
-    
-    This script demonstrates how to create a dataset, get label information,
-    and iterate through batches to inspect data shapes and content.
-    """
-
+    # Example usage and testing of the LiverDataset.
+    # Demonstrates how to create a dataset, inspect label info, and iterate batches.
     print("LiverDataset Demo")
     print("=" * 50)
     
     # Create a dataset instance
-    dataset = LiverDataset(num_samples=200, is_infer=True, n_slices=3)
+    dataset = LiverDataset(num_samples=200, n_slices=5, is_infer=False, aggregated_metadata=False, use_preselected_features=True, label_names=DUKE_ORIGINAL_LABEL_NAMES, sampling_type="random", augment_conf="DEFAULT2D")
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
 
     # Display label information
     n_labels = dataset.get_n_labels()
     print(f"Label dimensions: {n_labels}")
     print(f"Dataset size: {len(dataset)} samples")
+    print(f"Number of slices per sample: {dataset.n_slices}")
     print()
     
     # Process a few batches
@@ -749,12 +673,7 @@ if __name__ == "__main__":
             print(f"  Metadata shape: {metadata.shape}")
             print(f"  Filepaths: {filepaths}")
             print()
-
         # Only show first few batches
         if batch_idx >= 2:
             print("Demo completed successfully!")
             break
-
-    # Plot a sample batch of images
-    sample_images, _, _ = next(iter(dataloader))
-    plot_samples(sample_images, save_path="sample_images.png")

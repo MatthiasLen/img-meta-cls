@@ -136,18 +136,20 @@ class SparseMetadataEncoder(nn.Module):
         # Value MLP: Maps scalar feature value contextualized by feature embedding to FiLM parameters
         # Input: [value (1D), feature_embedding (index_embed_dim)] -> Output: [alpha, beta]
         
-        #value_mlp_out_dim = index_embed_dim * 2 if scalar_modulation else 2
-        #self.value_mlp = nn.Sequential(
-        #    nn.Linear(1 + index_embed_dim, value_mlp_dim),
-        #    nn.GELU(),
-        #    nn.Linear(value_mlp_dim, value_mlp_out_dim) # FiLM params: alpha and beta
-        #)
 
-        self.value_mlp = ValueNetwork(
-            index_embed_dim = index_embed_dim,
-            value_mlp_dim = value_mlp_dim, 
-            scalar_modulation = scalar_modulation
-        )
+        if not scalar_modulation:
+            value_mlp_out_dim = index_embed_dim * 2 
+            self.value_mlp = nn.Sequential(
+            nn.Linear(1 + index_embed_dim, value_mlp_dim),
+            nn.GELU(),
+            nn.Linear(value_mlp_dim, value_mlp_out_dim) # FiLM params: alpha and beta
+            )
+        else:
+            self.value_mlp = ValueNetwork(
+                index_embed_dim = index_embed_dim,
+                value_mlp_dim = value_mlp_dim, 
+                scalar_modulation = scalar_modulation
+            )
 
         # Post-processing network: Refines aggregated features and projects to output dimension
         self.post = nn.Sequential(
@@ -243,11 +245,11 @@ class SparseMetadataEncoder(nn.Module):
         
         # Predict FiLM parameters (alpha for scaling, beta for shifting)
         val_params = self.value_mlp(val_input) # (N, 2 * index_embed_dim)
-        print(val_params.shape)
+        # print(val_params.shape)
         
         # Split into alpha (scale) and beta (shift) parameters
         alpha, beta = val_params.chunk(2, dim=1)       # 2 * (N, index_embed_dim)
-        print(alpha.shape, beta.shape)
+        # print(alpha.shape, beta.shape)
         
         # Apply FiLM modulation: slight residual scaling and shifting
         modulated_feat = idx_emb * (1 + alpha) + beta  # (N, index_embed_dim)
