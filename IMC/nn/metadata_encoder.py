@@ -110,7 +110,7 @@ class ContextualImputer(nn.Module):
         # Step 2: Prepare input for imputation network
         # Concatenate filled values with observation mask (converted to float)
         # The mask tells the network which values are real vs filled
-        imputer_input = torch.cat([x_filled, mask], dim=-1).to(x.dtype)
+        imputer_input = torch.cat([x_filled, mask.to(x.dtype)], dim=-1).to(x.dtype)
         
         # Step 3: Predict refined imputed values for all features
         imputed_values = self.imputer_net(imputer_input)  # (*, num_features)

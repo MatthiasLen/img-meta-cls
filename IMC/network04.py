@@ -416,7 +416,7 @@ class MRISequenceClassifier(nn.Module):
         metadata_embed_dim: int = 128,
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
-        metadata_encoder_type: str = "imputer", # "imputer" or "sparse" or "ignore"
+        metadata_encoder_type: str = "imputer", # "imputer" or "sparse"
         imputer_type: str = "contextual", # if metadata_encoder_type is "imputer", which type to use ("contextual" or "ignore")
         sparse_enc_version: str = "v1", # if metadata_encoder_type is "sparse", which version to use ("v1", "v2", or "v5")
         img_enc_backbone: str | None = "densenet121", # "densenet" or "swin", None for resnet50 as default
@@ -431,9 +431,9 @@ class MRISequenceClassifier(nn.Module):
         # Check fusion module version
         assert fusion_module_version in ["v1", "v2", "concat"], "fusion_module_version must be 'v1', 'v2', or 'concat'"
         # Check metadata encoder type
-        assert metadata_encoder_type in ["imputer", "sparse", "ignore"], "metadata_encoder_type must be 'imputer', 'sparse', or 'ignore'"
+        assert metadata_encoder_type in ["imputer", "sparse"], "metadata_encoder_type must be 'imputer' or 'sparse'"
         # Check imputer type
-        assert imputer_type in ["none", "contextual", "ignore", "sparse", "ft"], "imputer_type must be 'none', 'contextual', 'ignore', 'sparse', or 'ft'"
+        assert imputer_type in ["contextual", "ignore"], "imputer_type must be 'contextual' or 'ignore'"
         # Check sparse encoder version
         assert sparse_enc_version in ["v1", "v2", "v5"], "sparse_enc_version must be 'v1', 'v2', or 'v5'"
         

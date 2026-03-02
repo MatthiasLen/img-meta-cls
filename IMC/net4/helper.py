@@ -61,6 +61,7 @@ def build_model(
             return ImageBasedClassifier(
                 num_classes_dict=num_classes_dict,
                 img_enc_backbone=img_enc_backbone,
+                incl_regression=incl_regression,
             )
     elif modality == "metadata":
         if metadata_enc_type == "imputer":

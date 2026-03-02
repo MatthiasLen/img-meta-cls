@@ -250,18 +250,12 @@ class Trainer:
                 if self.use_mixed_precision:
                     with torch.autocast("cuda"):
                         images = normalize_per_sample(images)
-                        if not self.img_ft_only:
-                            outputs = self.model(images, metadata)
-                        else:
-                            outputs = self.model(images)
+                        outputs = self.model(images, metadata)
                         loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
                         val_acc.append(self._classification_accuracies(outputs, targets, masks))
                 else:
                     images = normalize_per_sample(images)
-                    if not self.img_ft_only:
-                        outputs = self.model(images, metadata)
-                    else:
-                        outputs = self.model(images)
+                    outputs = self.model(images, metadata)
                     loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
                     val_acc.append(self._classification_accuracies(outputs, targets, masks))
 
@@ -350,25 +344,18 @@ class Trainer:
             for batch in test_loader:
                 images, metadata, targets, masks = batch
                 images = images.to(self.device)
-                if not self.img_ft_only:
-                    metadata = metadata.to(self.device)
+                metadata = metadata.to(self.device)
                 targets = [t.to(self.device) for t in targets]
                 masks = [m.to(self.device) for m in masks]
 
                 if self.use_mixed_precision:
                     with torch.amp.autocast("cuda"):
                         images = normalize_per_sample(images)
-                        if not self.img_ft_only:
-                            outputs = self.model(images, metadata)
-                        else:
-                            outputs = self.model(images)
+                        outputs = self.model(images, metadata)
                         test_acc.append(self._classification_accuracies(outputs, targets, masks))
                 else:
                     images = normalize_per_sample(images)
-                    if not self.img_ft_only:
-                        outputs = self.model(images, metadata)
-                    else:
-                        outputs = self.model(images)
+                    outputs = self.model(images, metadata)
                     test_acc.append(self._classification_accuracies(outputs, targets, masks))
 
 
