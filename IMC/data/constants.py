@@ -7,7 +7,7 @@ torch or other heavy libraries, making them safe to import in lightweight
 inference environments.
 """
 
-# Default label mappings for medical imaging classification
+# Default label mappings for medical imaging classification (PV.ai labels)
 DEFAULT_LABEL_NAMES = {
     "label_SequenceType": [
         "T1", "T2", "DWI", "ADC", "SUB", "DIXON_F", 
@@ -68,3 +68,20 @@ SELECTED_FEATURES = [
     'enc_ImagesInSeries',
     'enc_PixelSpacing_x',
 ]
+
+DUKE_MAP_LABELS: dict[str, dict[str, str]] = {
+    "label_SequenceType": {
+        "SUB": "OTHER",
+        "BOLUS": "OTHER",
+        "DIXON_F": "OTHER",
+    },
+    "label_AcquisitionPlane": {
+        "SAG": "OTHER",
+        "ORTHO": "OTHER",
+        "ROT": "OTHER",
+    },
+    "label_ContrastPhase": {
+        "hepa": "late",
+        "trans": "late",
+    },
+}
