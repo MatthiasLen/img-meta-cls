@@ -1,16 +1,37 @@
-"""
-Network 07: 3D Pyramid Pooling Network for Volumetric Classification.
+"""Network 07: 3D Pyramid Pooling Classifier for Volumetric MRI Classification.
 
-This module implements the complete 3D Pyramid Pooling Network architecture
-(PyramidPooling3DClassifier) for medical image series classification. It combines
-a 3D ResNet-like backbone with a 3D Pyramid Pooling layer to create a powerful
-volumetric classifier.
+This module implements :class:`PyramidPooling3DClassifier`, a 3-D CNN
+architecture for multi-task classification of volumetric MRI series.  The
+model stacks a 3-D CNN backbone (ResNet-3D or DenseNet-3D variants) with a
+3-D Pyramid Pooling module that aggregates spatial features at multiple
+resolution scales, an optional MLP projection layer, and a multi-task
+classification head.
 
-This architecture is designed to be image-only, following the approach described
-in the plan.
+The model accepts whole 3-D volumes ``(B, 1, D, H, W)`` as input and returns
+a **list** of per-task logit tensors, one tensor per task in the order they
+appear in *num_classes_dict*.  Metadata is not used; the optional *metadata*
+argument exists only for compatibility with the shared
+:class:`~IMC.trainer.Trainer` interface.
 
-Authors: Claude Code
-Date: 2026
+Backbone choices
+----------------
+- ``'resnet'``          : custom :class:`~IMC.nn.resnet_3d.ResNet3D`.
+- ``'densenet121'``     : DenseNet-121 variant (3-D).
+- ``'densenet169'``     : DenseNet-169 variant (3-D).
+- ``'densenet201'``     : DenseNet-201 variant (3-D).
+- ``'densenet_custom'`` : DenseNet with fully configurable block layout.
+
+Typical usage
+-------------
+::
+
+    model = PyramidPooling3DClassifier(
+        num_classes_dict={"SequenceType_Code_norm": 13},
+        backbone_type="resnet",
+        backbone_channels=32,
+    )
+    volume = torch.randn(2, 1, 64, 128, 128)   # (B, C, D, H, W)
+    logits = model(volume)                     # list of (2, 13)
 """
 
 import logging
@@ -135,16 +156,17 @@ class PyramidPooling3DClassifier(nn.Module):
         logger.info(f"Pyramid pooling out dim: {self.pyramid_pooling.output_dim}")
         logger.info(f"Head in dim: {head_input_dim}")
 
-    def forward(self, images: torch.Tensor, metadata: torch.Tensor | None = None) -> Dict[str, torch.Tensor]:
-        """
-        Forward pass for the 3D classifier.
+    def forward(self, images: torch.Tensor, metadata: torch.Tensor | None = None) -> List[torch.Tensor]:
+        """Forward pass for the 3-D classifier.
 
         Args:
-            images: Input 3D volume of shape (B, 1, D, H, W).
-            metadata: Unused placeholder for trainer compatibility.
+            images: Input 3-D volume of shape ``(B, 1, D, H, W)``.
+            metadata: Unused placeholder for :class:`~IMC.trainer.Trainer`
+                compatibility.  Pass ``None`` or omit.
 
         Returns:
-            A dictionary of logits for each classification task.
+            list[torch.Tensor]: One logit tensor of shape ``(B, n_classes_i)``
+            per task, in the same order as *num_classes_dict*.
         """
         # Log input shape if in debug mode
         if logging.getLogger('IMC').isEnabledFor(logging.DEBUG):
@@ -198,9 +220,9 @@ if __name__ == '__main__':
     output_logits = model_resnet(dummy_input)
 
     print("\nOutput logits:")
-    for task, logits in output_logits.items():
+    for task, logits in enumerate(output_logits):
         print(f"  Task: {task}, Logits shape: {logits.shape}")
-        assert logits.shape == (batch_size, num_classes[task])
+        assert logits.shape == (batch_size, num_classes[list(num_classes.keys())[task]])
 
     print("\n" + "=" * 80)
     print("Testing DenseNet121 Backbone")
@@ -219,9 +241,9 @@ if __name__ == '__main__':
         output_logits = model_densenet(dummy_input)
 
     print("\nOutput logits:")
-    for task, logits in output_logits.items():
+    for task, logits in enumerate(output_logits):
         print(f"  Task: {task}, Logits shape: {logits.shape}")
-        assert logits.shape == (batch_size, num_classes[task])
+        assert logits.shape == (batch_size, num_classes[list(num_classes.keys())[task]])
 
     print("\n" + "=" * 80)
     print("All tests passed successfully!")

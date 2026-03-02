@@ -35,6 +35,11 @@ DUKE_ORIGINAL_LABEL_NAMES = {
     "SequenceType_Code_norm": ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']
 }
 
+ADNI_LABEL_NAMES = {
+    "label_AcquisitionPlane": ["AX", "COR", "SAG", "na"],
+    "label_SequenceContrast": ["ASL", "CAL", "DWI", "OTHER", "PD", "T1", "T2", "T2FLAIR", "na"],
+    "label_Localizer": ["yes", "no", "na"],
+}
 # Selected DICOM metadata features for model inference
 # These features are extracted from encoded DICOM tags and used as input
 # to the neural network model alongside image data
