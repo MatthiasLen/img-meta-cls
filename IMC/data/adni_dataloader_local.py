@@ -137,6 +137,43 @@ class ADNIDataset(Dataset):
         use_preselected_features: bool = False,
         sampling_type: str = "equidistant",
     ) -> None:
+        """Initialise the ADNIDataset.
+
+        Args:
+            num_samples: Maximum number of samples to load. ``None`` loads all
+                available samples.
+            n_slices: Number of DICOM slices to sample from each series.
+            img_size: Spatial resolution – images are resized to
+                (*img_size* × *img_size*).
+            label_names: Mapping of task name → list of class strings.  Defaults
+                to :data:`ADNI_LABEL_NAMES`.
+            augment_conf: Augmentation configuration string passed to
+                :func:`~IMC.data.augment.augment` (e.g. ``"NONE2D"``, ``"TRAIN2D"``).
+            split: List of fold names to include, e.g. ``["fold_0", "fold_1"]``.
+                ``None`` loads all folds.
+            is_infer: When ``True`` the dataset returns
+                ``(images, metadata, filepath)`` instead of labelled tuples.
+            local_dataset_path: Root directory of the local ADNI DICOM tree.
+                Falls back to the ``ADNI_LOCAL_DATASET_PATH`` environment variable.
+            metadata_path: Path to a pre-encoded metadata ``.parquet`` file.
+                Falls back to the ``ADNI_METADATA_PATH`` environment variable.
+                When absent, metadata is encoded on-the-fly via
+                :func:`~IMC.data.dicom_tag_encoding.encode_dicom_tags_by_version`.
+            label_csv_path: Path to the label CSV.  Falls back to the
+                ``ADNI_LABEL_CSV_PATH`` environment variable.
+            aggregated_metadata: When ``True`` metadata is keyed by series folder
+                path rather than individual slice path.
+            use_preselected_features: Reserved for a future pre-defined feature
+                subset restriction. Currently a no-op.
+            sampling_type: Slice-sampling strategy – ``"equidistant"`` (default)
+                or ``"random"``.
+
+        Raises:
+            FileNotFoundError: If a required file (label CSV or metadata parquet)
+                cannot be found on the filesystem.
+            ValueError: If no samples remain after applying the split filter.
+            RuntimeError: For any other loading failure.
+        """
         self.num_samples = num_samples
         self.n_slices = n_slices
         self.img_size = img_size
@@ -176,7 +213,22 @@ class ADNIDataset(Dataset):
     # ------------------------------------------------------------------
 
     def _load_metadata_and_labels(self, split: Optional[List[str]]) -> None:
-        """Load and filter the label CSV and metadata, populating internal lists."""
+        """Load and filter the label CSV and metadata, populating internal lists.
+
+        Reads the label CSV at :attr:`label_csv_path`, optionally filters by
+        *split*, resolves local paths, loads (or encodes on-the-fly) the metadata
+        parquet, and populates :attr:`path_list`, :attr:`labels`, and
+        :attr:`metadata_df`.
+
+        Args:
+            split: Fold names to retain, e.g. ``["fold_0", "fold_1"]``. ``None``
+                keeps all rows.
+
+        Raises:
+            FileNotFoundError: If the label CSV file cannot be found.
+            ValueError: If no samples remain after applying *split*.
+            RuntimeError: For any other failure during loading or parsing.
+        """
         try:
             labels_df = pd.read_csv(self.label_csv_path)
 
@@ -248,6 +300,7 @@ class ADNIDataset(Dataset):
     # ------------------------------------------------------------------
 
     def __len__(self) -> int:
+        """Return the number of samples in the dataset."""
         return self.num_samples
 
     def get_n_labels(self) -> Dict[str, int]:
@@ -675,7 +728,7 @@ def get_infer_dataloader(
 
 
 if __name__ == "__main__":
-    """Quick smoke-test of ADNIDataset (inference mode, no DICOM loading)."""
+    # Quick smoke-test of ADNIDataset (inference mode, no DICOM loading).
     print("ADNIDataset Demo")
     print("=" * 50)
 
