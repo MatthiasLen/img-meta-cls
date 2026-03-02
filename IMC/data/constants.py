@@ -31,6 +31,10 @@ DUKE_LABEL_NAMES = {
     "label_Localizer": ["yes", "no", "na"],
 }
 
+DUKE_ORIGINAL_LABEL_NAMES = {
+    "SequenceType_Code_norm": ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']
+}
+
 # Selected DICOM metadata features for model inference
 # These features are extracted from encoded DICOM tags and used as input
 # to the neural network model alongside image data

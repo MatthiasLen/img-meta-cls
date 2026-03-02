@@ -14,7 +14,7 @@ The dataset supports:
 
 This dataloader is a key component for training 3D CNN architectures like network07.
 
-Authors: Claude Code
+Authors: Tuan Truong
 Date: 2026
 """
 
@@ -34,6 +34,7 @@ from torch.utils.data import Dataset
 from scipy.ndimage import zoom
 
 from IMC.data.augment import augment3d
+from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES
 
 logger = logging.getLogger('IMC')
 
@@ -41,27 +42,37 @@ logger = logging.getLogger('IMC')
 LOCAL_DATASET_PATH = os.getenv("LOCAL_DATASET_PATH")
 LABEL_CSV_PATH = os.getenv("LABEL_CSV_PATH")
 
-DUKE_ORIGINAL_LABEL_NAMES = {
-    "SequenceType_Code_norm": ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']
-}
-
-
 class DukeLiverDataset3D(Dataset):
-    """
-    PyTorch Dataset for loading 3D liver MRI volumes from the Duke dataset.
+    """PyTorch Dataset for loading 3D liver MRI volumes from the Duke dataset.
 
-    This dataset assembles 3D volumes from DICOM slices, applies 3D augmentation,
-    and prepares the data for volumetric classification models. It is an image-only
-    dataset.
+    Assembles full 3D volumes from DICOM slices, applies volumetric augmentation,
+    and prepares data for 3D CNN architectures such as the Pyramid Pooling Network.
+    This is an image-only dataset – metadata is not used.
+
+    Dataset paths are read from the environment variables ``LOCAL_DATASET_PATH``
+    and ``LABEL_CSV_PATH``, which must be set before instantiation (e.g. via
+    :func:`~IMC.net4_duke.train._configure_dataset_env`).
 
     Args:
-        target_depth: The target depth to resample/pad/crop all volumes to.
-        img_size: The target spatial size (H, W) for each slice in the volume.
-        label_names: Dictionary mapping label categories to their possible values.
-        augment_conf: 3D augmentation configuration string (e.g., "DEFAULT3D").
-        split: List of fold names to include (e.g., ["fold_0", "fold_1"]).
-        is_infer: If True, returns only images and filepaths (no labels).
-        num_samples: Maximum number of samples to load. If None, loads all.
+        target_depth: Target number of slices for every output volume.  Volumes
+            with more slices are sub-sampled equidistantly; volumes with fewer
+            slices are zero-padded.
+        img_size: Target spatial size ``(img_size × img_size)`` for each slice
+            after resampling.
+        label_names: Mapping of task name → list of class strings.  Defaults to
+            ``DUKE_ORIGINAL_LABEL_NAMES`` (single task, 13 classes A–M).
+        augment_conf: 3-D augmentation configuration key passed to
+            :func:`~IMC.data.augment.augment3d` (e.g. ``"NONE3D"``,
+            ``"DEFAULT3D"``).
+        split: Fold names to include (e.g. ``["fold_0", "fold_1"]``).  ``None``
+            loads the entire dataset without fold filtering.
+        is_infer: When ``True``, ``__getitem__`` returns
+            ``(volume_tensor, filepath)`` instead of
+            ``(volume_tensor, metadata, targets, masks)``.
+        num_samples: Maximum number of samples to keep.  ``None`` keeps all.
+
+    Raises:
+        ValueError: If ``LOCAL_DATASET_PATH`` or ``LABEL_CSV_PATH`` are unset.
     """
 
     def __init__(
@@ -74,6 +85,27 @@ class DukeLiverDataset3D(Dataset):
         is_infer: bool = False,
         num_samples: Optional[int] = None,
     ):
+        """Initialise the DukeLiverDataset3D.
+
+        Args:
+            target_depth: Target volume depth (number of slices).  Volumes
+                with more slices are sub-sampled equidistantly; shorter volumes
+                are zero-padded symmetrically.
+            img_size: Target spatial resolution for each slice (``img_size ×
+                img_size`` pixels).
+            label_names: Task → class-list mapping.  Defaults to
+                ``DUKE_ORIGINAL_LABEL_NAMES``.
+            augment_conf: 3-D augmentation key passed to
+                :func:`~IMC.data.augment.augment3d`.
+            split: Fold names to include.  ``None`` loads all folds.
+            is_infer: Return ``(volume, filepath)`` tuples instead of labelled
+                tuples.
+            num_samples: Cap on the number of samples.  ``None`` keeps all.
+
+        Raises:
+            ValueError: If ``LOCAL_DATASET_PATH`` or ``LABEL_CSV_PATH``
+                environment variables are not set.
+        """
         self.target_depth = target_depth
         self.img_size = img_size
         self.label_names = label_names or DUKE_ORIGINAL_LABEL_NAMES.copy()
@@ -96,7 +128,21 @@ class DukeLiverDataset3D(Dataset):
         logger.info(f"Target depth: {self.target_depth}, Image size: {self.img_size}")
 
     def _load_labels(self, split: Optional[List[str]]) -> None:
-        """Load labels from CSV and filter by split."""
+        """Load labels from the label CSV and optionally filter by fold split.
+
+        Populates ``self.path_list`` and ``self.labels`` with the surviving
+        rows.  When ``num_samples`` is set the lists are truncated after
+        filtering.
+
+        Args:
+            split: Fold names to keep (matched against the ``"split"`` column).
+                Pass ``None`` to keep all rows.
+
+        Raises:
+            FileNotFoundError: If ``LABEL_CSV_PATH`` does not exist.
+            ValueError: If no samples remain after applying the fold filter.
+            RuntimeError: For any other error encountered while reading the CSV.
+        """
         try:
             labels_df = pd.read_csv(self.label_csv_path)
             logger.info(f"Loaded {len(labels_df)} samples from label CSV: {self.label_csv_path}")
@@ -122,14 +168,36 @@ class DukeLiverDataset3D(Dataset):
             raise RuntimeError(f"Error loading dataset labels: {e}")
 
     def __len__(self) -> int:
+        """Return the number of samples in the dataset."""
         return len(self.path_list)
 
     def get_n_labels(self) -> Dict[str, int]:
-        """Get the number of classes for each label category."""
+        """Return the number of classes for each classification task.
+
+        Returns:
+            Mapping of task name → number of classes, e.g.
+            ``{"SequenceType_Code_norm": 13}``.
+        """
         return {label_name: len(classes) for label_name, classes in self.label_names.items()}
 
     def _resample_volume_depth(self, volume: np.ndarray) -> np.ndarray:
-        """Resample, pad, or crop the volume to the target depth."""
+        """Resample volume depth to ``self.target_depth``.
+
+        Three cases are handled:
+
+        * **Equal** – volume is returned unchanged.
+        * **Too deep** – ``target_depth`` frames are selected by equidistant
+          sub-sampling (``np.linspace`` indices).
+        * **Too shallow** – the volume is zero-padded symmetrically along the
+          depth axis.
+
+        Args:
+            volume: Float32 array of shape ``(D, H, W)`` (or ``(D, H, W, C)``
+                after augmentation).
+
+        Returns:
+            Array with depth dimension equal to ``self.target_depth``.
+        """
         native_depth = volume.shape[0]
 
         if native_depth == self.target_depth:
@@ -153,9 +221,44 @@ class DukeLiverDataset3D(Dataset):
 
     def __getitem__(self, idx: int) -> Union[
         Tuple[torch.Tensor, str],
-        Tuple[torch.Tensor, torch.Tensor]
+        Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]
     ]:
-        """Get a single 3D sample from the dataset."""
+        """Load and return a single volumetric sample.
+
+        Processing pipeline for each sample:
+
+        1. Collect all ``*.dicom`` files in the series directory and stack them
+           into a ``(D_native, H_native, W_native)`` float32 array.
+        2. Apply 3-D augmentation (:func:`~IMC.data.augment.augment3d`).
+        3. Resample spatial dimensions to ``img_size × img_size`` via
+           SimpleITK linear interpolation.
+        4. Resample / pad depth to ``target_depth`` with
+           :meth:`_resample_volume_depth`.
+        5. Add a channel dimension → ``(1, target_depth, img_size, img_size)``.
+
+        Args:
+            idx: Sample index in ``[0, len(dataset))``.
+
+        Returns:
+            **Inference mode** (``is_infer=True``):
+                ``(volume_tensor, filepath)`` where *volume_tensor* has shape
+                ``(1, target_depth, img_size, img_size)`` and *filepath* is the
+                absolute path string to the series directory.
+
+            **Training mode** (``is_infer=False``):
+                ``(volume_tensor, metadata_tensor, targets, masks)`` where
+                *metadata_tensor* is a placeholder zero tensor ``(1,)``,
+                *targets* is a length-1 tuple containing the class index, and
+                *masks* is a length-1 tuple containing ``True``.
+
+        Raises:
+            IndexError: If ``idx >= len(self.path_list)``.
+
+        Note:
+            On error, a dummy all-zero volume is returned together with a
+            target of ``-1`` and mask ``False`` so that a single bad sample
+            does not crash the training loop.
+        """
         if idx >= len(self.path_list):
             raise IndexError(f"Index {idx} out of range for dataset of size {len(self.path_list)}")
 
