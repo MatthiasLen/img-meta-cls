@@ -78,7 +78,7 @@ python -m IMC.net4_duke.train \
 python -m IMC.net4_duke.train \
     --modality combined \
     --folds 3 \
-    --log_dir ./logs/<existing_timestamp>_5fold_cv \
+    --log_dir ./logs/ \
     --gpu 0
 ```
 
@@ -91,7 +91,7 @@ python -m IMC.net4_duke.train \
 | `--batch_size` | `16` | Mini-batch size |
 | `--num_epochs` | `30` | Maximum epochs per fold |
 | `--lr` | `1e-6` | Base learning rate |
-| `--gpu` | `1` | CUDA device index (`-1` = CPU) |
+| `--gpu` | `0` | CUDA device index (`-1` = CPU) |
 | `--folds` | all | Comma-separated fold indices, e.g. `0,1,2` |
 | `--n_folds` | `5` | Total number of folds |
 | `--patience` | `30` | Early-stopping patience (epochs) |

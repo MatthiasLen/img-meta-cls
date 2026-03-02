@@ -576,7 +576,7 @@ def main() -> None:
             print("Creating dataloaders...")
 
             _dl_kwargs = dict(
-                num_samples=100,
+                num_samples=None,
                 augment_conf="NONE2D",
                 aggregated_metadata=False,
                 use_preselected_features=args.use_preselected_features,

@@ -18,8 +18,7 @@ Output
 ------
 ``predictions.csv`` is written to ``--output_dir``.  Each row corresponds to
 one DICOM series and contains the filepath followed by one column per
-classification task.  A derived binary column ``label_Contrast`` (``"pre"`` /
-``"post"``) is also appended.
+classification task.
 
 If ``--run_eval`` is set, evaluation metrics are computed and written to the
 same directory using :func:`~IMC.evaluate_duke.run_evaluation`.
