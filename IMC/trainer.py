@@ -3,7 +3,8 @@ import math
 import numpy as np
 from sklearn import logger
 import torch
-from typing import Union
+import torch.profiler
+from typing import Optional, Union
 from torch.utils.data import DataLoader
 
 from IMC.helper import normalize_per_sample
@@ -13,6 +14,7 @@ from pathlib import Path
 import os
 
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
+print(f"DEBUG_MODE is {'ON' if DEBUG_MODE else 'OFF'}")
 
 def classification_losses(outputs: list , targets: list) -> list:
     """
@@ -58,7 +60,9 @@ class Trainer:
                  patience: int = 5,
                  task_weights: Union[list, None] = None,
                  use_mixed_precision: bool = True,
-                 incl_regression: bool = True):
+                 incl_regression: bool = True,
+                 profiler_dir: Optional[str] = None,
+                 use_z_score_norm: bool = True):
         self.model = model.to(device)
         self.device = device
         self.optimizer = optimizer
@@ -71,7 +75,9 @@ class Trainer:
         self.task_weights = task_weights if task_weights is not None else [1.0] * 7
         self.use_mixed_precision = use_mixed_precision
         self.incl_regression = incl_regression
-
+        # Directory for torch.profiler TensorBoard traces (None = disabled)
+        self.profiler_dir = profiler_dir
+        self.use_z_score_norm = use_z_score_norm
     def _classification_accuracies(self, outputs, targets, masks):
         """Compute per-task accuracies from logits and targets."""
         assert len(outputs) == len(targets)
@@ -105,26 +111,61 @@ class Trainer:
         batch_id = 0
         last_scale = self.scaler.get_scale() if self.use_mixed_precision else 1.0
 
+        # ------------------------------------------------------------------
+        # Torch Profiler – enabled only when profiler_dir is set.
+        # Schedule: 1 wait, 1 warmup, 3 active steps per epoch.
+        # TensorBoard trace is written via tensorboard_trace_handler so it
+        # can be viewed with: tensorboard --logdir <profiler_dir>
+        # record_function labels let you see data-loading vs forward/backward
+        # separately in the TensorBoard "Trace" and "Operator" views.
+        # ------------------------------------------------------------------
+        def _make_profiler():
+            os.makedirs(self.profiler_dir, exist_ok=True)
+            return torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA,
+                ],
+                schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=1),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(self.profiler_dir),
+                record_shapes=True,
+                profile_memory=True,
+                with_stack=True,
+            )
+
+        prof_ctx = _make_profiler() if self.profiler_dir is not None else None
+        if prof_ctx is not None:
+            prof_ctx.start()
+            if self.logger:
+                self.logger.info(
+                    f"[Profiler] epoch {epoch}: started – trace → {self.profiler_dir}"
+                )
+
         for batch in train_loader:
             batch_id += 1
 
-            images, metadata, targets, masks = batch
-
-            images = images.to(self.device)
-            metadata = metadata.to(self.device)
-            targets = [t.to(self.device) for t in targets]
-            masks = [m.to(self.device) for m in masks]
+            # ---- data → device (labelled for profiler) --------------------
+            with torch.profiler.record_function("data_loading"):
+                images, metadata, targets, masks = batch
+                images   = images.to(self.device, non_blocking=True)
+                metadata = metadata.to(self.device, non_blocking=True)
+                targets  = [t.to(self.device, non_blocking=True) for t in targets]
+                masks    = [m.to(self.device, non_blocking=True) for m in masks]
 
 
             self.optimizer.zero_grad()
 
-            if self.use_mixed_precision:
-                with torch.amp.autocast("cuda"):
-                    images = normalize_per_sample(images)
+            # ---- forward pass (labelled for profiler) --------------------
+            with torch.profiler.record_function("forward"):
+                if self.use_mixed_precision:
+                    with torch.amp.autocast("cuda"):
+                        if self.use_z_score_norm:
+                            images = normalize_per_sample(images)
+                        outputs = self.model(images, metadata)
+                else:
+                    if self.use_z_score_norm:
+                        images = normalize_per_sample(images)
                     outputs = self.model(images, metadata)
-            else:
-                images = normalize_per_sample(images)
-                outputs = self.model(images, metadata)
 
             loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
 
@@ -147,12 +188,12 @@ class Trainer:
                     scaled_loss = loss * self.scaler.get_scale()
                     self.logger.info(f"Scaled loss: {scaled_loss.item():.6e}")
             
-            if self.use_mixed_precision:
-                self.scaler.scale(loss).backward()
-            else:
-                loss.backward()
-            
-            # Check for NaN in gradients
+            # ---- backward + optimiser step (labelled for profiler) --------
+            with torch.profiler.record_function("backward_optimizer"):
+                if self.use_mixed_precision:
+                    self.scaler.scale(loss).backward()
+                else:
+                    loss.backward()
             if DEBUG_MODE:
                 self.logger.info("Check gradient after backward")
                 has_nan_grads = False
@@ -189,6 +230,10 @@ class Trainer:
 
             current_scale = self.scaler.get_scale() if self.use_mixed_precision else 1.0
             last_scale = current_scale
+
+            # ---- profiler step -------------------------------------------
+            if prof_ctx is not None:
+                prof_ctx.step()
 
             # Optional prints (reduced frequency to avoid log spam)
             if self.logger and batch_id % 100 == 0:  # Log every 100 batches instead of every batch
@@ -231,6 +276,29 @@ class Trainer:
 
         avg_train_loss = train_loss_accum / max(1, len(train_loader))
         avg_ind_train = np.average(train_losses, axis=0)
+
+        # ---- stop profiler and print key-averages table ------------------
+        if prof_ctx is not None:
+            prof_ctx.stop()
+            if self.logger:
+                self.logger.info(
+                    "[Profiler] Top ops by CPU time:\n"
+                    + prof_ctx.key_averages().table(sort_by="cpu_time_total", row_limit=15)
+                )
+                if torch.cuda.is_available():
+                    self.logger.info(
+                        "[Profiler] Top ops by CUDA time:\n"
+                        + prof_ctx.key_averages().table(sort_by="cuda_time_total", row_limit=15)
+                    )
+                    self.logger.info(
+                        "[Profiler] Top ops by CUDA memory:\n"
+                        + prof_ctx.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10)
+                    )
+                self.logger.info(
+                    f"[Profiler] TensorBoard trace saved to: {self.profiler_dir}  "
+                    f"(view with: tensorboard --logdir {self.profiler_dir})"
+                )
+
         return avg_train_loss, avg_ind_train
 
     def validate_epoch(self, val_loader: DataLoader, epoch: int):
@@ -247,17 +315,19 @@ class Trainer:
                 targets = [t.to(self.device) for t in targets]
                 masks = [m.to(self.device) for m in masks]
 
-                if self.use_mixed_precision:
-                    with torch.autocast("cuda"):
-                        images = normalize_per_sample(images)
-                        outputs = self.model(images, metadata)
-                        loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
-                        val_acc.append(self._classification_accuracies(outputs, targets, masks))
-                else:
+                # if self.use_mixed_precision:
+                #     with torch.autocast("cuda"):
+                #         if self.use_z_score_norm:
+                #             images = normalize_per_sample(images)
+                #         outputs = self.model(images, metadata)
+                #         loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
+                #         val_acc.append(self._classification_accuracies(outputs, targets, masks))
+                # else:
+                if self.use_z_score_norm:
                     images = normalize_per_sample(images)
-                    outputs = self.model(images, metadata)
-                    loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
-                    val_acc.append(self._classification_accuracies(outputs, targets, masks))
+                outputs = self.model(images, metadata)
+                loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
+                val_acc.append(self._classification_accuracies(outputs, targets, masks))
 
                 val_loss_accum += loss.item()
                 val_losses.append(indiv_losses)
@@ -350,11 +420,13 @@ class Trainer:
 
                 if self.use_mixed_precision:
                     with torch.amp.autocast("cuda"):
-                        images = normalize_per_sample(images)
+                        if self.use_z_score_norm:
+                            images = normalize_per_sample(images)
                         outputs = self.model(images, metadata)
                         test_acc.append(self._classification_accuracies(outputs, targets, masks))
                 else:
-                    images = normalize_per_sample(images)
+                    if self.use_z_score_norm:
+                        images = normalize_per_sample(images)
                     outputs = self.model(images, metadata)
                     test_acc.append(self._classification_accuracies(outputs, targets, masks))
 
