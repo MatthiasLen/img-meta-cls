@@ -102,6 +102,40 @@ NONE3D = {
     "normalize": "none",
 }
 
+# ---------------------------------------------------------------------------
+# CT-specific presets (resize-and-pad instead of center crop)
+# ---------------------------------------------------------------------------
+# These preserve the full field of view by downscaling large slices to fit
+# within patch_size and zero-padding smaller ones.  No peripheral content
+# is discarded, which matters for contrast-agent detection where enhancement
+# may appear anywhere in the image.
+
+CT_NONE2D = {
+    "patch_size": 224,
+    "crop": "resize_pad",        # aspect-ratio resize + zero-pad
+    "flip": False,
+    "rot90": False,
+    "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.0},
+    "noise": {"max_std": 0.0, "rate": 0.0, "fixed": False},
+    "gamma": {"min_log_gamma": 0.0, "max_log_gamma": 0.0, "rate": 0.0},
+    "blur":  {"max_sigma": 0.0, "rate": 0.0, "fixed": False},
+    "project": "none",
+    "normalize": "none",
+}
+
+CT_DEFAULT2D = {
+    "patch_size": 224,
+    "crop": "resize_pad",        # aspect-ratio resize + zero-pad
+    "flip": True,
+    "rot90": True,
+    "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.0},
+    "noise": {"max_std": 0.05, "rate": 0.4, "fixed": False},
+    "gamma": {"min_log_gamma": -0.2231, "max_log_gamma": 0.1823, "rate": 0.4},
+    "blur":  {"max_sigma": 1.5, "rate": 0.3, "fixed": False},
+    "project": "none",
+    "normalize": "none",
+}
+
 VALID_CONFIGURATIONS = {
     "DEFAULT2D": DEFAULT2D,
     "ZSCOREDEFAULT2D": ZSCOREDEFAULT2D,
@@ -110,7 +144,57 @@ VALID_CONFIGURATIONS = {
     "IMAGENET299_CENTER": IMAGENET299_CENTER,
     "DEFAULT3D": DEFAULT3D,
     "NONE3D": NONE3D,
+    "CT_NONE2D": CT_NONE2D,
+    "CT_DEFAULT2D": CT_DEFAULT2D,
 }
+
+
+def resize_pad(image: np.ndarray, patch_size: int) -> np.ndarray:
+    """Resize a 2-D image to fit within ``patch_size × patch_size`` while
+    preserving the aspect ratio, then zero-pad to exactly
+    ``patch_size × patch_size``.
+
+    Unlike a centre-crop this operation keeps the **entire field of view**;
+    large images are shrunk (down-sampled) and small images are scaled up
+    (up-sampled) before the symmetric zero-padding step.
+
+    Parameters
+    ----------
+    image :
+        Input 2-D float array of shape ``(H, W)``.
+    patch_size :
+        Target edge length of the square output.
+
+    Returns
+    -------
+    np.ndarray
+        Float32 array of shape ``(patch_size, patch_size)``.
+    """
+    h, w = image.shape[:2]
+
+    # Scale so the longer side equals patch_size
+    scale = patch_size / max(h, w)
+    new_h = max(1, round(h * scale))
+    new_w = max(1, round(w * scale))
+
+    if new_h != h or new_w != w:
+        zoom_factors = (new_h / h, new_w / w)
+        # order=1 (bilinear) is fast and avoids ringing artefacts
+        image = zoom(image.astype(np.float32), zoom_factors, order=1)
+
+    # Symmetric zero-pad to patch_size × patch_size
+    pad_top    = (patch_size - new_h) // 2
+    pad_bottom = patch_size - new_h - pad_top
+    pad_left   = (patch_size - new_w) // 2
+    pad_right  = patch_size - new_w - pad_left
+
+    image = np.pad(
+        image,
+        ((pad_top, pad_bottom), (pad_left, pad_right)),
+        mode="constant",
+        constant_values=0,
+    )
+    return image.astype(np.float32)
 
 
 def crop(image: np.ndarray, patch_size: int, crop: str, dims: int = 2) -> np.ndarray:
@@ -407,7 +491,12 @@ def augment(image: np.ndarray, augment_conf: str = "DEFAULT2D") -> np.ndarray:
     if augment_dict["project"] != "none":
         # if projection is used, we need to crop a 3D patch
         dims = 3
-    image = crop(image, augment_dict["patch_size"], augment_dict["crop"], dims=dims)
+
+    if augment_dict["crop"] == "resize_pad":
+        # Aspect-ratio-preserving resize + zero-pad — keeps full FOV.
+        image = resize_pad(image, augment_dict["patch_size"])
+    else:
+        image = crop(image, augment_dict["patch_size"], augment_dict["crop"], dims=dims)
 
     if augment_dict["flip"]:
         image = flip(image)
