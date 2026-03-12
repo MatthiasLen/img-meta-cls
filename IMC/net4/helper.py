@@ -20,6 +20,7 @@ def build_model(
         metadata_embed_dim: int = 128,
         fusion_module_version: str = "v2",
         metadata_dropout: bool = False,
+        **kwargs,
         ) -> nn.Module:
     """Instantiate the correct Network-v04 variant based on ``modality``.
 
@@ -62,6 +63,7 @@ def build_model(
                 num_classes_dict=num_classes_dict,
                 img_enc_backbone=img_enc_backbone,
                 incl_regression=incl_regression,
+                n_channels=kwargs.get("n_channels", 1),
             )
     elif modality == "metadata":
         if metadata_enc_type == "imputer":
@@ -96,6 +98,8 @@ def build_model(
                 sparse_enc_version=sparse_enc_version,
                 fusion_module_version=fusion_module_version,
                 dropout_metadata=metadata_dropout,
+                scalar_modulation=kwargs.get("scalar_modulation", False),
+                n_channels=kwargs.get("n_channels", 1),
             )
     else:
         raise ValueError(
