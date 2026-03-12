@@ -494,7 +494,17 @@ def augment(image: np.ndarray, augment_conf: str = "DEFAULT2D") -> np.ndarray:
 
     if augment_dict["crop"] == "resize_pad":
         # Aspect-ratio-preserving resize + zero-pad — keeps full FOV.
-        image = resize_pad(image, augment_dict["patch_size"])
+        if dims != 2:
+            # resize_pad is defined for 2D only; fall back to a 3D-compatible crop.
+            # Use a standard random_center crop and log a warning so the user is aware.
+            log.warning(
+                "augment(): 'resize_pad' crop is only supported for 2D inputs. "
+                "Falling back to 'random_center' crop for 3D (projection) augmentation."
+            )
+            image = crop(image, augment_dict["patch_size"], "random_center", dims=dims)
+        else:
+            # Aspect-ratio-preserving resize + zero-pad — keeps full FOV.
+            image = resize_pad(image, augment_dict["patch_size"])
     else:
         image = crop(image, augment_dict["patch_size"], augment_dict["crop"], dims=dims)
 
