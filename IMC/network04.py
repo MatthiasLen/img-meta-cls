@@ -422,10 +422,12 @@ class MRISequenceClassifier(nn.Module):
         img_enc_backbone: str | None = "densenet121", # "densenet" or "swin", None for resnet50 as default
         incl_regression: bool = True,
         dropout_metadata: bool = False,
-        fusion_module_version: str = "v1" #v1 or v2 or concat
+        fusion_module_version: str = "v1", #v1 or v2 or concat
+        scalar_modulation: bool = False,
+        n_channels: int = 1,  # 1 = single-window grayscale; 3 = multi-window (e.g. soft_tissue/angio/bone)
     ):
         super().__init__()
-        self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone) 
+        self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone, n_channels=n_channels)
         slice_feat_dim = self.image_encoder.get_feature_dimension()
 
         # Check fusion module version
@@ -455,7 +457,8 @@ class MRISequenceClassifier(nn.Module):
                 self.metadata_encoder = SparseEncoderV1(
                     metadata_input_dim,
                     out_dim=metadata_embed_dim,
-                    reduce=True if fusion_module_version == "v1" else False
+                    reduce=True if fusion_module_version == "v1" else False,
+                    scalar_modulation=scalar_modulation
                 )
             elif sparse_enc_version == "v2":
                 self.metadata_encoder = SparseEncoderV2(
@@ -592,9 +595,10 @@ class ImageBasedClassifier(nn.Module):
         output_emb_dim: int = 128,
         img_enc_backbone: str | None = "swin", # "densenet" or "swin", None for resnet50 as default
         incl_regression: bool = False,
+        n_channels: int = 1,  # 1 = single-window grayscale; 3 = multi-window (e.g. soft_tissue/angio/bone)
     ):
         super().__init__()
-        self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone)
+        self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone, n_channels=n_channels)
         
         slice_feat_dim = self.image_encoder.get_feature_dimension()
 
