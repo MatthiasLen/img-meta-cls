@@ -14,6 +14,7 @@ dependencies = [
     "google-cloud-aiplatform>=1.137.0",
     "google-cloud-storage>=3.4.1",
     "ipykernel>=7.0.1",
+    "ipywidgets>=8.1.8",
     "matplotlib>=3.10.6",
     "ml-dtypes>=0.4.1",
     "natsort>=8.4.0",
