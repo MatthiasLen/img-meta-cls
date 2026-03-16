@@ -315,16 +315,16 @@ class Trainer:
                 targets = [t.to(self.device) for t in targets]
                 masks = [m.to(self.device) for m in masks]
 
-                # if self.use_mixed_precision:
-                #     with torch.autocast("cuda"):
-                #         if self.use_z_score_norm:
-                #             images = normalize_per_sample(images)
-                #         outputs = self.model(images, metadata)
-                #         loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
-                #         val_acc.append(self._classification_accuracies(outputs, targets, masks))
-                # else:
-                if self.use_z_score_norm:
-                    images = normalize_per_sample(images)
+                if self.use_mixed_precision:
+                    with torch.autocast("cuda"):
+                        if self.use_z_score_norm:
+                            images = normalize_per_sample(images)
+                        outputs = self.model(images, metadata)
+                        loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
+                        val_acc.append(self._classification_accuracies(outputs, targets, masks))
+                else:
+                    if self.use_z_score_norm:
+                        images = normalize_per_sample(images)
                 outputs = self.model(images, metadata)
                 loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
                 val_acc.append(self._classification_accuracies(outputs, targets, masks))
