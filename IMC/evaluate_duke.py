@@ -8,7 +8,10 @@ import pandas as pd
 import numpy as np
 from sklearn.metrics import classification_report, confusion_matrix
 import matplotlib.pyplot as plt
-import seaborn as sns
+try:
+    import seaborn as sns
+except ImportError:  # optional visualisation dependency
+    sns = None
 import os
 from IMC.data.constants import DUKE_LABEL_NAMES, DUKE_ORIGINAL_LABEL_NAMES
 

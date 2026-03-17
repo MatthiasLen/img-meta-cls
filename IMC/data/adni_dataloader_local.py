@@ -24,15 +24,13 @@ Date: 2026
 
 import logging
 import os
-import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import torch
-from natsort import natsorted
-from pydicom import dcmread
+from IMC.data.image_reader import calculate_slice_indices, DicomImageReader
 from torch.utils.data import DataLoader, Dataset
 
 from IMC.data.augment import augment
@@ -191,6 +189,7 @@ class ADNIDataset(Dataset):
             label_csv_path if label_csv_path is not None else ADNI_LABEL_CSV_PATH
         )
 
+        self._reader = DicomImageReader(allow_no_extension=True)
         self._load_metadata_and_labels(split)
         self.num_metadata_features = len(self.metadata_df.columns)
         logger.info(
@@ -307,36 +306,13 @@ class ADNIDataset(Dataset):
             folder = Path(os.path.join(self.local_dataset_path, series_folder))
         else:
             folder = Path(series_folder)
-        if not folder.exists():
-            raise RuntimeError(f"DICOM folder not found: {folder}")
-        files = list(folder.rglob("*.dcm")) + list(folder.rglob("*.dicom"))
-        if not files:
-            # Some ADNI series have no extension
-            files = [p for p in folder.rglob("*") if p.is_file()]
-        if not files:
-            raise RuntimeError(f"No DICOM files found in: {folder}")
-        return natsorted(files)
+        return self._reader.list_files(folder)
 
     def _calculate_slice_indices(
         self, num_slices: int, n_images: int, sampling_type: str
     ) -> List[Optional[int]]:
         """Sample *n_images* slice indices from a series with *num_slices* slices."""
-        offset_fraction = num_slices // max(n_images, 1)
-        offset = min(offset_fraction // 4, 2) * n_images
-
-        if n_images <= num_slices:
-            if sampling_type == "random":
-                start = max(0, offset)
-                end = max(num_slices - offset, n_images)
-                indices = random.sample(range(start, end), n_images)
-            else:  # equidistant
-                start = offset
-                end = num_slices - 1 - offset
-                indices = [int(x) for x in np.linspace(start, end, n_images)]
-        else:
-            indices = list(range(num_slices)) + [None] * (n_images - num_slices)
-
-        return indices
+        return calculate_slice_indices(num_slices, n_images, sampling_type)
 
     def _load_slices(
         self, series_folder: str, sampling_type: str = "equidistant"
@@ -356,16 +332,12 @@ class ADNIDataset(Dataset):
             if idx is None:
                 img = np.zeros((self.img_size, self.img_size), dtype=np.float32)
             else:
-                ds = dcmread(dicom_files[idx])
-                try:
-                    img = ds.pixel_array.astype(np.float32)
-                    if img.ndim > 2:
+                img, _ = self._reader.read_pixel_array(dicom_files[idx])
+                if img is None or img.ndim > 2:
+                    if img is not None:
                         logger.warning(
                             f"Multi-dim array in {dicom_files[idx]}, replacing with zeros."
                         )
-                        img = np.zeros((self.img_size, self.img_size), dtype=np.float32)
-                except Exception as e:
-                    logger.error(f"Error reading DICOM file {dicom_files[idx]}: {e}")
                     img = np.zeros((self.img_size, self.img_size), dtype=np.float32)
             img = augment(img, self.augment_conf)
             images.append(torch.tensor(img, dtype=torch.float32))
