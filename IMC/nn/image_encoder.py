@@ -53,6 +53,7 @@ class MultiSliceImageEncoder(nn.Module):
         """
         super().__init__()
         self.backbone = backbone
+        self.n_channels = n_channels
         self._get_backbone(backbone, pretrained)
 
         # Adapt the first convolutional layer for the given number of input channels
@@ -294,23 +295,27 @@ class MultiSliceImageEncoder(nn.Module):
         - Aggregate slice information in a learned manner
 
         Args:
-            x (torch.Tensor): Input tensor of shape (B, N_slices, H, W) where:
-                - B is batch size
-                - N_slices is the number of 2D slices per 3D volume
-                - H, W are the height and width of each slice
+            x (torch.Tensor): Input tensor of shape ``(B, N_slices, H, W)`` for
+                single-channel images, or ``(B, N_slices, C, H, W)`` for
+                multi-channel images (e.g. stacked CT windows).
 
         Returns:
             torch.Tensor: Encoded features of shape (B, N_slices, slice_feat_dim).
                 Each slice is independently encoded into a feature vector, maintaining
                 the sequential structure for downstream processing.
         """
-        B, N, H, W = x.shape
-        # Flatten batch and slice dimensions: treat each slice as a separate sample
-        x = x.view(B * N, 1, H, W)
+        if x.dim() == 4:
+            # Single-channel input: (B, N, H, W)
+            B, N, H, W = x.shape
+            x = x.view(B * N, 1, H, W)
+        else:
+            # Multi-channel input: (B, N, C, H, W) — e.g. stacked CT windows
+            B, N, C, H, W = x.shape
+            x = x.view(B * N, C, H, W)
 
-        # Some backbones (Swin, EfficientNet, DINOv3) require 3-channel input
-        # Repeat the grayscale channel to create pseudo-RGB
-        if not self.backbone.startswith(("densenet", "resnet")):
+        # Some backbones (Swin, EfficientNet, DINOv3) require 3-channel input.
+        # Only replicate to pseudo-RGB when the current input is single-channel.
+        if not self.backbone.startswith(("densenet", "resnet")) and x.shape[1] == 1:
             x = x.repeat(1, 3, 1, 1)  # (B*N, 3, H, W)
 
         # Pass through the CNN backbone to extract features
