@@ -211,6 +211,8 @@ class SparseMetadataEncoder(nn.Module):
         
         # Edge case: if no features are observed in the entire batch, return zero embedding
         if idxs.numel() == 0:
+            if self.reduce:
+                return torch.zeros(B, self.out_dim, device=device)
             return torch.zeros(B, S, self.out_dim, device=device)
 
         # Extract sample and feature indices for all observed values
