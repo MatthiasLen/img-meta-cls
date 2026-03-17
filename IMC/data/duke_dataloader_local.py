@@ -23,15 +23,13 @@ Date: 2026
 
 import logging
 import os
-import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 import torch
-from natsort import natsorted
-from pydicom import FileDataset, dcmread
+from IMC.data.image_reader import calculate_slice_indices, DicomImageReader
 from torch.utils.data import DataLoader, Dataset
 
 from IMC.data.augment import augment
@@ -162,6 +160,7 @@ class LiverDataset(Dataset):
         self.sampling_type = sampling_type
 
         # Load and process metadata
+        self._reader = DicomImageReader()
         self._load_metadata_and_labels(split)
         self.num_metadata_features = len(SELECTED_FEATURES) if use_preselected_features else len(self.metadata_df.columns)
         
@@ -255,19 +254,7 @@ class LiverDataset(Dataset):
         Raises:
             RuntimeError: If the folder doesn't exist or contains no DICOM files.
         """
-        series_folder = Path(self.local_dataset_path) / path_dicom_folder
-        
-        if not series_folder.exists():
-            raise RuntimeError(f"DICOM folder not found: {series_folder}")
-        
-        # Find all DICOM files in the folder
-        dicom_files = list(series_folder.rglob("*.dcm")) + list(series_folder.rglob("*.dicom"))
-        
-        if not dicom_files:
-            raise RuntimeError(f"No DICOM files found in folder: {series_folder}")
-        
-        # Return naturally sorted list
-        return natsorted(dicom_files)
+        return self._reader.list_files(Path(self.local_dataset_path) / path_dicom_folder)
 
     def open_dicom_slice_from_series(
         self,
@@ -315,25 +302,17 @@ class LiverDataset(Dataset):
                 # Create zero-filled slice for missing data
                 image = np.zeros((self.img_size, self.img_size), dtype=np.float32)
             else:
-                # Load DICOM slice and extract pixel array
-                dicom_slice = dcmread(slice_filenames[slice_idx])
-                image = dicom_slice.pixel_array.astype(np.float32)
-                
-                # Handle multi-dimensional arrays (replace with zeros)
-                if len(image.shape) > 2:
-                    logger.warning(f"Multi-dimensional pixel array in {slice_filenames[slice_idx]}, using zeros")
+                image, _ = self._reader.read_pixel_array(slice_filenames[slice_idx])
+                if image is None or image.ndim > 2:
+                    if image is not None:
+                        logger.warning(f"Multi-dimensional pixel array in {slice_filenames[slice_idx]}, using zeros")
                     image = np.zeros((self.img_size, self.img_size), dtype=np.float32)
 
             # Apply data augmentation
             image = augment(image, self.augment_conf)
             
             # Convert to tensor and add channel dimension
-            arr = image.copy()
-            if isinstance(arr, np.ndarray) and arr.ndim == 3:
-                # Already 3-channel (C,H,W) from IMAGENET299_CENTER
-                images.append(torch.tensor(arr, dtype=torch.float32))
-            else:
-                images.append(torch.tensor(arr, dtype=torch.float32)) # (H, W)
+            images.append(torch.tensor(image.copy(), dtype=torch.float32)) # (H, W)
 
         # Load metadata (individual dicom files or aggregated)
         if self.aggregated_metadata:
@@ -377,26 +356,7 @@ class LiverDataset(Dataset):
         Returns:
             List of slice indices to load. None values indicate missing slices.
         """
-        # Calculate offset to avoid edge slices
-        offset_fraction = num_slices // n_images
-        offset = min(offset_fraction // 4, 2) * n_images
-        
-        if n_images <= num_slices:
-            if sampling_type == "random":
-                # Randomly sample slices avoiding edges
-                start_range = max(0, offset)
-                end_range = max(num_slices - offset, n_images)
-                slice_indices = random.sample(range(start_range, end_range), n_images)
-            else:
-                # Equidistant sampling
-                start_idx = offset
-                end_idx = num_slices - 1 - offset
-                slice_indices = [int(x) for x in np.linspace(start_idx, end_idx, n_images)]
-        else:
-            # More slices requested than available - use all and pad with None
-            slice_indices = list(range(num_slices)) + [None] * (n_images - num_slices)
-        
-        return slice_indices
+        return calculate_slice_indices(num_slices, n_images, sampling_type)
 
     def __getitem__(self, idx: int) -> Union[
         Tuple[torch.Tensor, torch.Tensor, str],
