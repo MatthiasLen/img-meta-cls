@@ -424,7 +424,8 @@ class MRISequenceClassifier(nn.Module):
         dropout_metadata: bool = False,
         fusion_module_version: str = "v1", #v1 or v2 or concat
         scalar_modulation: bool = False,
-        n_channels: int = 1,  # 1 = single-window grayscale; 3 = multi-window (e.g. soft_tissue/angio/bone)
+        n_channels: int = 1,  # 1 = single-window grayscale; 3 = multi-window (e.g. soft_tissue/angio/bone),
+        learn_missing_embed: bool = False,  # Whether to learn a special embedding for missing metadata instead of using 0 tensors in the sparse metadata encoder V1
     ):
         super().__init__()
         self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone, n_channels=n_channels)
@@ -458,7 +459,8 @@ class MRISequenceClassifier(nn.Module):
                     metadata_input_dim,
                     out_dim=metadata_embed_dim,
                     reduce=True if fusion_module_version == "v1" else False,
-                    scalar_modulation=scalar_modulation
+                    scalar_modulation=scalar_modulation,
+                    learn_missing_emb=learn_missing_embed
                 )
             elif sparse_enc_version == "v2":
                 self.metadata_encoder = SparseEncoderV2(
