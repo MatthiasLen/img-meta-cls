@@ -38,6 +38,20 @@ from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES, DEFAULT_LABEL_NAMES, S
 
 logger = logging.getLogger('IMC')
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _is_na(value) -> bool:
+    """Return True for None, float NaN, or the string 'nan'/'none'."""
+    if value is None:
+        return True
+    try:
+        import math
+        return math.isnan(float(value))
+    except (TypeError, ValueError):
+        return str(value).strip().lower() in ("nan", "none", "")
+
 # Configuration constants
 LOCAL_DATASET_PATH = os.getenv("LOCAL_DATASET_PATH", None)
 logger.info(f"LOCAL_DATASET_PATH: {LOCAL_DATASET_PATH}")
@@ -147,6 +161,7 @@ class LiverDataset(Dataset):
         # Initialize data containers
         self.labels: List[Dict[str, Any]] = []
         self.path_list: List[str] = []
+        self.uid_list: List[Optional[str]] = []  # series_instance_uid per sample
         self.slice_filenames: Dict[str, List[Path]] = {}
         self.img_buffer: Dict[str, np.ndarray] = {}
 
@@ -209,6 +224,10 @@ class LiverDataset(Dataset):
             for filepath, row in labels_df.iterrows():
                 self.path_list.append(filepath)
                 self.labels.append(row.to_dict())
+                uid = row.get("series_instance_uid", None)
+                self.uid_list.append(
+                    str(uid) if uid is not None and not _is_na(uid) else None
+                )
             
             # Store metadata DataFrame for later use
             self.metadata_df = metadata_df
@@ -241,26 +260,37 @@ class LiverDataset(Dataset):
         """
         return {label_name: len(classes) for label_name, classes in self.label_names.items()}
 
-    def get_bucket_filelist(self, path_dicom_folder: str) -> List[Path]:
+    def get_bucket_filelist(
+        self, path_dicom_folder: str, series_uid: Optional[str] = None
+    ) -> List[Path]:
         """
         Get a sorted list of DICOM files in the specified folder.
-        
+
+        When *series_uid* is provided only slices belonging to that series are
+        returned, handling directories that contain multiple series.
+
         Args:
             path_dicom_folder: Path to the DICOM series folder.
-            
+            series_uid: ``SeriesInstanceUID`` to filter on.  ``None`` → all
+                files (legacy behaviour).
+
         Returns:
             List of Path objects pointing to DICOM files, naturally sorted.
-            
+
         Raises:
-            RuntimeError: If the folder doesn't exist or contains no DICOM files.
+            RuntimeError: If the folder doesn't exist or contains no matching files.
         """
-        return self._reader.list_files(Path(self.local_dataset_path) / path_dicom_folder)
+        return self._reader.list_files(
+            Path(self.local_dataset_path) / path_dicom_folder,
+            series_uid=series_uid,
+        )
 
     def open_dicom_slice_from_series(
         self,
         path_dicom_folder: str,
         sampling_type: str = "equidistant",
-        n_images: int = 1
+        n_images: int = 1,
+        series_uid: Optional[str] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Load and process multiple slices from a DICOM series.
@@ -289,7 +319,7 @@ class LiverDataset(Dataset):
             - All images are resized to self.img_size and augmented
         """
         # Get list of DICOM files in the series
-        slice_filenames = self.get_bucket_filelist(path_dicom_folder)
+        slice_filenames = self.get_bucket_filelist(path_dicom_folder, series_uid=series_uid)
 
         # Calculate slice indices to sample
         num_slices = len(slice_filenames)
@@ -390,11 +420,12 @@ class LiverDataset(Dataset):
         images, metadata = self.open_dicom_slice_from_series(
             self.path_list[idx],
             sampling_type=self.sampling_type,
-            n_images=self.n_slices
+            n_images=self.n_slices,
+            series_uid=self.uid_list[idx],
         )
     
         if self.is_infer:
-            return images, metadata, self.path_list[idx]
+            return images, metadata, self.path_list[idx], self.uid_list[idx]
         
         # Process classification labels
         targets, masks = self._process_labels(idx)
