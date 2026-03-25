@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
-import logging 
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ResidualMLP(nn.Module):
     """
@@ -100,7 +102,8 @@ class SparseMetadataEncoder(nn.Module):
         learnable_norm: bool = False,
         p_post_dropout : float = 0.05,
         reduce: bool = True,
-        scalar_modulation : bool = False
+        scalar_modulation : bool = False,
+        learn_missing_emb: bool = False
     ):
         """
         Initialize the Sparse Metadata Encoder.
@@ -132,6 +135,19 @@ class SparseMetadataEncoder(nn.Module):
         
         # Learnable embedding for each feature index
         self.index_emb = nn.Embedding(num_features, index_embed_dim)
+
+        # Learnable token substituted for the aggregated representation of samples
+        # where ALL features are NaN (e.g. NIfTI slices that carry no DICOM metadata).
+        # When learn_missing_emb=True a dedicated parameter is trained; otherwise a
+        # fixed 0 vector is used (backward compatibility with checkpoints trained before learn_missing_emb was introduced).
+        if learn_missing_emb:
+            print("Using learnable missing embedding")
+            self.missing_emb = nn.Parameter(torch.randn(index_embed_dim))
+        else:
+            # Fixed zero vector for backward compatibility with checkpoints trained
+            # before learn_missing_emb was introduced.  All-NaN samples will produce
+            # post(zeros); this is stable as long as the model was trained that way.
+            self.register_buffer("missing_emb", torch.zeros(index_embed_dim))
         
         # Value MLP: Maps scalar feature value contextualized by feature embedding to FiLM parameters
         # Input: [value (1D), feature_embedding (index_embed_dim)] -> Output: [alpha, beta]
@@ -209,11 +225,17 @@ class SparseMetadataEncoder(nn.Module):
         # Each row is [sample_index, feature_index]
         idxs = torch.nonzero(mask, as_tuple=False)
         
-        # Edge case: if no features are observed in the entire batch, return zero embedding
+        # Edge case: entire batch is all-NaN — route every row through
+        # post(missing_emb) so the token is trained and output is consistent
+        # with the per-sample all-NaN handling below.
         if idxs.numel() == 0:
+            mt = self.missing_emb.to(dtype=x.dtype)
+            agg_full = mt.unsqueeze(0).expand(B * S, -1).contiguous()  # (B*S, index_embed_dim)
+            out_flat = self.post(agg_full)   # (B*S, out_dim)
+            out = out_flat.view(B, S, -1)    # (B, S, out_dim)
             if self.reduce:
-                return torch.zeros(B, self.out_dim, device=device, dtype=x.dtype)
-            return torch.zeros(B, S, self.out_dim, device=device, dtype=x.dtype)
+                return out.mean(dim=1)       # (B, out_dim)
+            return out
 
         # Extract sample and feature indices for all observed values
         sample_idx = idxs[:, 0] # (N,), values in [0, B*S) indicating which sample
@@ -221,7 +243,12 @@ class SparseMetadataEncoder(nn.Module):
         
         # Extract the actual observed values from x_flat and add dimension for MLP input
         vals = x_flat[sample_idx, feat_idx].unsqueeze(1)  # (N, 1)
-        
+        if torch.isnan(vals).any() or torch.isinf(vals).any():
+            logger.debug(
+                "[SparseEncoder] vals has NaN=%s Inf=%s  (N=%d observed tokens)",
+                torch.isnan(vals).any().item(), torch.isinf(vals).any().item(), vals.shape[0]
+            )
+
         # Optional: Apply learnable per-feature normalization
         # This affine transformation is learned ONLY based on training dataset statistics
         # for each feature dimension individually. This is NOT contextualized like the
@@ -240,6 +267,11 @@ class SparseMetadataEncoder(nn.Module):
         
         # Get feature embeddings for all observed features
         idx_emb = self.index_emb(feat_idx) # (N, index_embed_dim)
+        if torch.isnan(idx_emb).any() or torch.isinf(idx_emb).any():
+            logger.debug(
+                "[SparseEncoder] idx_emb has NaN=%s Inf=%s  (index_emb weights corrupt)",
+                torch.isnan(idx_emb).any().item(), torch.isinf(idx_emb).any().item()
+            )
 
         # Contextualize the numeric value with its feature embedding
         # The feature embedding provides semantic context for interpreting the numeric value
@@ -247,7 +279,11 @@ class SparseMetadataEncoder(nn.Module):
         
         # Predict FiLM parameters (alpha for scaling, beta for shifting)
         val_params = self.value_mlp(val_input) # (N, 2 * index_embed_dim)
-        # print(val_params.shape)
+        if torch.isnan(val_params).any() or torch.isinf(val_params).any():
+            logger.debug(
+                "[SparseEncoder] val_params (FiLM) has NaN=%s Inf=%s  (value_mlp weights corrupt)",
+                torch.isnan(val_params).any().item(), torch.isinf(val_params).any().item()
+            )
         
         # Split into alpha (scale) and beta (shift) parameters
         alpha, beta = val_params.chunk(2, dim=1)       # 2 * (N, index_embed_dim)
@@ -255,22 +291,54 @@ class SparseMetadataEncoder(nn.Module):
         
         # Apply FiLM modulation: slight residual scaling and shifting
         modulated_feat = idx_emb * (1 + alpha) + beta  # (N, index_embed_dim)
+        if torch.isnan(modulated_feat).any() or torch.isinf(modulated_feat).any():
+            logger.debug(
+                "[SparseEncoder] modulated_feat has NaN=%s Inf=%s",
+                torch.isnan(modulated_feat).any().item(), torch.isinf(modulated_feat).any().item()
+            )
         
-        # Aggregate modulated features per sample using scatter-add
+        # Aggregate modulated features per sample using scatter-add.
+        # Use the same dtype as modulated_feat to ensure compatibility under
+        # mixed-precision (AMP) training where modulated_feat may be float16.
         agg_dim = idx_emb.shape[1]
-        agg = torch.zeros(B*S, agg_dim, device=device) #(B*S, index_embed_dim) 
-        
+        agg = torch.zeros(B * S, agg_dim, device=device, dtype=modulated_feat.dtype)  # (B*S, index_embed_dim)
+
         # Sum all modulated features belonging to the same sample
         agg = agg.index_add(0, sample_idx, modulated_feat)
 
         # For mean aggregation, normalize by count of observed features per sample
         if self.aggregation == "mean":
             # Count non-NaN features per sample, clamp to avoid division by zero
-            counts = mask.sum(dim=1).clamp(min=1).float().unsqueeze(1) # (B*S, 1) 
+            counts = mask.sum(dim=1).clamp(min=1).to(agg.dtype).unsqueeze(1)  # (B*S, 1)
             agg = agg / counts
+        if torch.isnan(agg).any() or torch.isinf(agg).any():
+            logger.debug(
+                "[SparseEncoder] agg (post-sum/mean) has NaN=%s Inf=%s  "
+                "all-NaN samples=%d/%d",
+                torch.isnan(agg).any().item(), torch.isinf(agg).any().item(),
+                int((mask.sum(dim=1) == 0).sum().item()), B * S
+            )
+
+        # Replace fully-missing (all-NaN) sample rows with the missing_emb token.
+        # These rows were untouched by index_add (no observed features) and still
+        # hold zeros.  Feeding zeros into ResidualMLP's LayerNorm causes near-zero
+        # variance -> ~316x gradient amplification -> NaN parameters.
+        # Note: only all-NaN rows are replaced, not samples that merely have some NaNs.
+        per_sample_obs = mask.sum(dim=1)   # (B*S,)
+        all_nan_mask = per_sample_obs == 0
+        if all_nan_mask.any():
+            agg = agg.clone()  # avoid in-place on a view that autograd may track
+            agg[all_nan_mask] = self.missing_emb.to(agg.dtype)
 
         # Apply post-processing network to refine and project to output dimension
         out_flat = self.post(agg)     # (B*S, out_dim)
+        if torch.isnan(out_flat).any() or torch.isinf(out_flat).any():
+            logger.debug(
+                "[SparseEncoder] post(agg) output has NaN=%s Inf=%s  "
+                "(agg input was clean: %s)",
+                torch.isnan(out_flat).any().item(), torch.isinf(out_flat).any().item(),
+                not (torch.isnan(agg).any() or torch.isinf(agg).any()).item()
+            )
         out = out_flat.view(B, S, -1) # (B, S, out_dim)
         
         # Optionally reduce sequence dimension by averaging
