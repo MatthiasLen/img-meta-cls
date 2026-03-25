@@ -226,16 +226,18 @@ class SparseMetadataEncoder(nn.Module):
         # Each row is [sample_index, feature_index]
         idxs = torch.nonzero(mask, as_tuple=False)
         
-        # Edge case: entire batch is all-NaN — route every row through
-        # post(missing_emb) so the token is trained and output is consistent
-        # with the per-sample all-NaN handling below.
+        # Edge case: entire batch is all-NaN.
+        # When learn_missing_emb=False, return zeros of the correct output shape
+        # for backward compatibility with checkpoints trained before this feature.
+        # When learn_missing_emb=True, route through post(missing_emb) so the
+        # learnable token is trained and output is consistent with per-sample handling.
         if idxs.numel() == 0:
-            mt = self.missing_emb.to(dtype=x.dtype)
             if not self.learn_missing_emb:
                 if self.reduce:
-                    return mt.unsqueeze(0).expand(B, -1).contiguous()  # (B, index_embed_dim)
-                return mt.unsqueeze(0).unsqueeze(0).expand(B, S, -1).contiguous()  # (B, S, index_embed_dim)
+                    return torch.zeros(B, self.out_dim, device=device, dtype=x.dtype)
+                return torch.zeros(B, S, self.out_dim, device=device, dtype=x.dtype)
             else:
+                mt = self.missing_emb.to(dtype=x.dtype)
                 agg_full = mt.unsqueeze(0).expand(B * S, -1).contiguous()  # (B*S, index_embed_dim)
                 out_flat = self.post(agg_full)   # (B*S, out_dim)
                 out = out_flat.view(B, S, -1)    # (B, S, out_dim)
@@ -249,11 +251,14 @@ class SparseMetadataEncoder(nn.Module):
         
         # Extract the actual observed values from x_flat and add dimension for MLP input
         vals = x_flat[sample_idx, feat_idx].unsqueeze(1)  # (N, 1)
-        if torch.isnan(vals).any() or torch.isinf(vals).any():
-            logger.debug(
-                "[SparseEncoder] vals has NaN=%s Inf=%s  (N=%d observed tokens)",
-                torch.isnan(vals).any().item(), torch.isinf(vals).any().item(), vals.shape[0]
-            )
+        if logger.isEnabledFor(logging.DEBUG):
+            has_nan = torch.isnan(vals).any()
+            has_inf = torch.isinf(vals).any()
+            if has_nan or has_inf:
+                logger.debug(
+                    "[SparseEncoder] vals has NaN=%s Inf=%s  (N=%d observed tokens)",
+                    has_nan.item(), has_inf.item(), vals.shape[0]
+                )
 
         # Optional: Apply learnable per-feature normalization
         # This affine transformation is learned ONLY based on training dataset statistics

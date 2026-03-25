@@ -146,6 +146,18 @@ class TestLearnMissingEmb:
             "missing_emb should be a trainable parameter when learn_missing_emb=True"
         )
 
+    def test_missing_emb_receives_gradients(self):
+        # Construct encoder in train mode so gradients are computed
+        enc = SparseMetadataEncoder(**_DEFAULT_KWARGS, learn_missing_emb=True)
+        enc.train()
+        # Use an all-NaN batch so that the missing embedding is exercised
+        x = torch.full((_B, _S, _F), float("nan"))
+        z = enc(x)
+        loss = z.sum()
+        loss.backward()
+        assert enc.missing_emb.grad is not None, "missing_emb should receive gradients"
+        assert torch.isfinite(enc.missing_emb.grad).all(), "missing_emb.grad should be finite"
+
     def test_missing_emb_not_trainable_by_default(self):
         enc = _make_encoder(learn_missing_emb=False)
         param_names = {n for n, _ in enc.named_parameters()}
@@ -181,11 +193,11 @@ class TestParameterCounts:
         assert delta > 0, "learn_missing_emb=True should add trainable parameters"
 
     def test_delta_equals_index_embed_dim(self):
-        """The extra params should equal index_embed_dim (default=64)."""
-        index_embed_dim = 64  # default value in SparseMetadataEncoder
+        """The extra params should equal the size of the missing embedding."""
         default = _make_encoder(learn_missing_emb=False)
         learned = _make_encoder(learn_missing_emb=True)
+        expected_delta = learned.missing_emb.numel()
         delta = self._n_trainable(learned) - self._n_trainable(default)
-        assert delta == index_embed_dim, (
-            f"Expected delta={index_embed_dim}, got {delta}"
+        assert delta == expected_delta, (
+            f"Expected delta={expected_delta}, got {delta}"
         )
