@@ -40,6 +40,13 @@ ADNI_LABEL_NAMES = {
     "label_SequenceContrast": ["ASL", "CAL", "DWI", "OTHER", "PD", "T1", "T2", "T2FLAIR", "na"],
     "label_Localizer": ["yes", "no", "na"],
 }
+
+BRAIN_LABEL_NAMES = {
+    "label_Contrast": ["pre", "post", "na"],
+    "label_SequenceContrast": ["ADC", "DWI", "OTHER", "PD", "T1", "T2", "T2FLAIR", "na"],
+    "label_AcquisitionPlane": ["AX", "COR", "OBL", "SAG", "na"],
+    "label_SpecialAcquisition": ["LOC", "no", "na"],
+}
 # Selected DICOM metadata features for model inference
 # These features are extracted from encoded DICOM tags and used as input
 # to the neural network model alongside image data

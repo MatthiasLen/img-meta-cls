@@ -100,6 +100,7 @@ def build_model(
                 dropout_metadata=metadata_dropout,
                 scalar_modulation=kwargs.get("scalar_modulation", False),
                 n_channels=kwargs.get("n_channels", 1),
+                learn_missing_embed=kwargs.get("learn_missing_embed", False),
             )
     else:
         raise ValueError(

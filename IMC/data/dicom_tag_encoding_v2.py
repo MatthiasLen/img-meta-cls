@@ -83,7 +83,7 @@ def check_dicom_tag_types(dicom_tags: Dict[str, Any], selected_dicom_tags: Dict[
             if tag_type == List[float]:
                 try:
                     dicom_tags[tag_name] = [float(x) for x in dicom_tags[tag_name]]
-                except TypeError:
+                except:
                     log.warning(
                         f"DICOM tag {tag_name} with value {dicom_tags[tag_name]} could not be converted to expected type {tag_type}"
                     )
