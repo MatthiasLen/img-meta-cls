@@ -425,7 +425,8 @@ class LiverDataset(Dataset):
         )
     
         if self.is_infer:
-            return images, metadata, self.path_list[idx], self.uid_list[idx]
+            uid = self.uid_list[idx] if self.uid_list[idx] is not None else ""
+            return images, metadata, self.path_list[idx], uid
         
         # Process classification labels
         targets, masks = self._process_labels(idx)
