@@ -385,6 +385,74 @@ class SimpleConcatFusion(nn.Module):
         return output
 
 
+class MetadataGatedFusion(nn.Module):
+    """Metadata-gated fusion (v3) for multi-modal MRI classification.
+
+    Metadata produces a **per-dimension soft gate** that controls how much the
+    image vs. metadata contribution flows into the final joint embedding.  When
+    metadata carries strong evidence for a class, the gate can suppress the image
+    branch entirely (gate → 1); when metadata is ambiguous the image branch
+    contributes more (gate → 0).
+
+    Both encoders use ``reduce=True`` (2D tensors, like v1 fusion), so this
+    module is a drop-in replacement for v1 when ``fusion_module_version='v3'``.
+
+    Architecture::
+
+        g = σ(gate_fc(meta_feat))           ∈ (0, 1)^output_dim
+        output = g ⊙ meta_proj(meta_feat)
+               + (1 - g) ⊙ img_proj(img_feat)
+
+    The gate weights are initialised to zero so the gate starts at 0.5
+    (balanced between modalities) and is learned end-to-end.
+
+    Args:
+        image_emb_dim:    Dimension of fused image features (``fused_feat_dim``).
+        metadata_emb_dim: Dimension of metadata embedding.
+        output_dim:       Output dimension, must match ``MultiTaskHead.input_dim``.
+        dropout:          Dropout probability in projection MLPs.
+    """
+
+    def __init__(
+        self,
+        image_emb_dim: int,
+        metadata_emb_dim: int,
+        output_dim: int = 128,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+
+        self.img_proj = nn.Sequential(
+            nn.Linear(image_emb_dim, output_dim),
+            nn.LayerNorm(output_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+        self.meta_proj = nn.Sequential(
+            nn.Linear(metadata_emb_dim, output_dim),
+            nn.LayerNorm(output_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+        # Gate: projects metadata to a per-dimension weight in (0,1).
+        # Weights initialised to 0 → gate starts at sigmoid(0) = 0.5.
+        self.gate_fc = nn.Linear(metadata_emb_dim, output_dim, bias=True)
+        nn.init.zeros_(self.gate_fc.weight)
+        nn.init.zeros_(self.gate_fc.bias)
+
+    def forward(self, img_feat: torch.Tensor, meta_feat: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            img_feat:   ``(B, image_emb_dim)`` — output of SliceFeatureFusion (reduce=True).
+            meta_feat:  ``(B, metadata_emb_dim)`` — output of metadata encoder (reduce=True).
+
+        Returns:
+            Fused embedding ``(B, output_dim)``.
+        """
+        g = torch.sigmoid(self.gate_fc(meta_feat))          # (B, output_dim)
+        return g * self.meta_proj(meta_feat) + (1 - g) * self.img_proj(img_feat)
+
+
 class MRISequenceClassifier(nn.Module):
     """
     Multi-modal MRI classifier with cross-attention fusion.
@@ -422,17 +490,19 @@ class MRISequenceClassifier(nn.Module):
         img_enc_backbone: str | None = "densenet121", # "densenet" or "swin", None for resnet50 as default
         incl_regression: bool = True,
         dropout_metadata: bool = False,
-        fusion_module_version: str = "v1", #v1 or v2 or concat
+        fusion_module_version: str = "v1", #v1 or v2 or concat or v3
         scalar_modulation: bool = False,
         n_channels: int = 1,  # 1 = single-window grayscale; 3 = multi-window (e.g. soft_tissue/angio/bone),
         learn_missing_embed: bool = False,  # Whether to learn a special embedding for missing metadata instead of using 0 tensors in the sparse metadata encoder V1
+        pre_processors=None,   # Optional list of PreProcessor callables; applied to metadata before encoding (eval only).
+        post_processors=None,  # Optional list of PostProcessor callables; applied to logits after the head (eval only).
     ):
         super().__init__()
         self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone, n_channels=n_channels)
         slice_feat_dim = self.image_encoder.get_feature_dimension()
 
         # Check fusion module version
-        assert fusion_module_version in ["v1", "v2", "concat"], "fusion_module_version must be 'v1', 'v2', or 'concat'"
+        assert fusion_module_version in ["v1", "v2", "concat", "v3"], "fusion_module_version must be 'v1', 'v2', 'concat', or 'v3'"
         # Check metadata encoder type
         assert metadata_encoder_type in ["imputer", "sparse"], "metadata_encoder_type must be 'imputer' or 'sparse'"
         # Check imputer type
@@ -440,25 +510,28 @@ class MRISequenceClassifier(nn.Module):
         # Check sparse encoder version
         assert sparse_enc_version in ["v1", "v2", "v5"], "sparse_enc_version must be 'v1', 'v2', or 'v5'"
         
+        # v3 uses 2D (reduced) tensors like v1; v2/concat use 3D sequence tensors
+        _use_reduce = fusion_module_version in ("v1", "v3")
+
         # Prefill for slice_fusion and metadata encoder based on fusion module version
         self.slice_fusion = SliceFeatureFusion(
             slice_feat_dim=slice_feat_dim, 
             fused_dim=fused_feat_dim, 
-            reduce=True if fusion_module_version == "v1" else False
+            reduce=_use_reduce,
         )
         if metadata_encoder_type == "imputer":
             self.metadata_encoder = MetadataEncoder(
                 metadata_input_dim, 
                 embed_dim=metadata_embed_dim, 
                 imputer=imputer_type, 
-                reduce=True if fusion_module_version == "v1" else False
+                reduce=_use_reduce,
             )
         elif metadata_encoder_type == "sparse":
             if sparse_enc_version == "v1":
                 self.metadata_encoder = SparseEncoderV1(
                     metadata_input_dim,
                     out_dim=metadata_embed_dim,
-                    reduce=True if fusion_module_version == "v1" else False,
+                    reduce=_use_reduce,
                     scalar_modulation=scalar_modulation,
                     learn_missing_emb=learn_missing_embed
                 )
@@ -466,13 +539,13 @@ class MRISequenceClassifier(nn.Module):
                 self.metadata_encoder = SparseEncoderV2(
                     metadata_input_dim,
                     out_dim=metadata_embed_dim,
-                    reduce=True if fusion_module_version == "v1" else False
+                    reduce=_use_reduce,
                 )
             elif sparse_enc_version == "v5":
                 self.metadata_encoder = SparseEncoderV5(
                     metadata_input_dim,
                     out_dim=metadata_embed_dim,
-                    reduce=True if fusion_module_version == "v1" else False
+                    reduce=_use_reduce,
                 )
 
         # Create fusion module based on version
@@ -495,10 +568,21 @@ class MRISequenceClassifier(nn.Module):
                 output_dim=output_emb_dim,
                 reduce=True
             )
-        # Initialize multi-task head
+        elif fusion_module_version == "v3":
+            self.embedding_fusion = MetadataGatedFusion(
+                image_emb_dim=fused_feat_dim,
+                metadata_emb_dim=metadata_embed_dim,
+                output_dim=output_emb_dim,
+            )
+        # Initialize primary multi-task head
         self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict, incl_regression=incl_regression)
         # Optional: metadata dropout during training
         self.dropout_metadata = dropout_metadata
+        self._task_names = list(num_classes_dict.keys())
+        # Plain Python callables (not nn.Module); only invoked during eval.
+        # Assign after construction if needed: model.pre_processors = [...] / model.post_processors = [...]
+        self.pre_processors  = list(pre_processors)  if pre_processors  else []
+        self.post_processors = list(post_processors) if post_processors else []
 
     def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
         """
@@ -535,9 +619,14 @@ class MRISequenceClassifier(nn.Module):
             has_inf = torch.isinf(fused_img_feat).any()
             if has_nan or has_inf:
                 logger.debug(f"Fused image feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-        
+
+        # Inference-time metadata pre-processing (outlier cleaning, etc.)
+        if not self.training and self.pre_processors:
+            for pre_proc in self.pre_processors:
+                metadata = pre_proc(metadata)
+
         # Encode metadata
-        metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim)
+        metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim) or (B, N, metadata_embed_dim)
 
         if DEBUG_MODE:
             logger.debug(f"Metadata feature shape: {metadata_feat.shape}")
@@ -558,8 +647,13 @@ class MRISequenceClassifier(nn.Module):
             if has_nan or has_inf:
                 logger.debug(f"Joint feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
 
-        # feed combined embedding to multi-task head
+        # feed combined embedding to primary multi-task head
         res = self.multi_task_head(joint_feat)
+
+        # Inference-time post-processing (rule-based overrides, etc.)
+        if not self.training and self.post_processors:
+            for post_proc in self.post_processors:
+                res = post_proc(res, metadata, self._task_names)
 
         if DEBUG_MODE:
             for i, r in enumerate(res):
