@@ -7,7 +7,7 @@ from IMC.network04 import (
 import torch.nn as nn
 
 def build_model(
-        modality="combined", 
+        modality="combined",
         vanilla_image_classifier=False, 
         img_enc_backbone="densenet121", 
         metadata_enc_type="sparse", 
@@ -20,6 +20,8 @@ def build_model(
         metadata_embed_dim: int = 128,
         fusion_module_version: str = "v2",
         metadata_dropout: bool = False,
+        pre_processors=None,
+        post_processors=None,
         **kwargs,
         ) -> nn.Module:
     """Instantiate the correct Network-v04 variant based on ``modality``.
@@ -54,12 +56,12 @@ def build_model(
     if modality == "image":
         image_classifier_type = "vanilla" if vanilla_image_classifier else "default"
         if image_classifier_type == "vanilla":
-            return SimpleImageBasedClassifier(
+            model = SimpleImageBasedClassifier(
                 num_classes_dict=num_classes_dict,
                 incl_regression=incl_regression,
             )
         else:
-            return ImageBasedClassifier(
+            model = ImageBasedClassifier(
                 num_classes_dict=num_classes_dict,
                 img_enc_backbone=img_enc_backbone,
                 incl_regression=incl_regression,
@@ -67,7 +69,7 @@ def build_model(
             )
     elif modality == "metadata":
         if metadata_enc_type == "imputer":
-            return MetadataBasedClassifier(
+            model = MetadataBasedClassifier(
                 num_classes_dict=num_classes_dict,
                 metadata_input_dim=metadata_input_dim,
                 metadata_embed_dim=metadata_embed_dim,
@@ -78,7 +80,7 @@ def build_model(
             )
         elif metadata_enc_type == "sparse":
             assert sparse_enc_version in ["v1", "v2", "v5"], "Invalid sparse encoder version"
-            return MetadataBasedClassifier(
+            model = MetadataBasedClassifier(
                 num_classes_dict=num_classes_dict,
                 metadata_input_dim=metadata_input_dim,
                 metadata_embed_dim=metadata_embed_dim,
@@ -87,8 +89,10 @@ def build_model(
                 sparse_enc_version=sparse_enc_version,
                 incl_regression=incl_regression,
             )
+        else:
+            raise ValueError(f"Unknown metadata_enc_type '{metadata_enc_type}'.")
     elif modality == "combined":
-        return MRISequenceClassifier(
+        model = MRISequenceClassifier(
                 metadata_input_dim=metadata_input_dim,
                 num_classes_dict=num_classes_dict,
                 img_enc_backbone=img_enc_backbone,
@@ -101,9 +105,13 @@ def build_model(
                 scalar_modulation=kwargs.get("scalar_modulation", False),
                 n_channels=kwargs.get("n_channels", 1),
                 learn_missing_embed=kwargs.get("learn_missing_embed", False),
+                pre_processors=pre_processors,
+                post_processors=post_processors,
             )
     else:
         raise ValueError(
             f"Unknown modality '{modality}'. "
             "Choose one of: combined, image, metadata."
         )
+
+    return model
