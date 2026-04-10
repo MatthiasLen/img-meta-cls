@@ -56,7 +56,7 @@ class Trainer:
                  optimizer: torch.optim.Optimizer,
                  scheduler,
                  criterion,
-                 scaler: torch.cuda.amp.GradScaler,
+                 scaler: Optional[torch.amp.GradScaler],
                  tb_logger=None,
                  logger=None,
                  patience: int = 5,

@@ -187,7 +187,7 @@ def parse_args() -> argparse.Namespace:
         "--fusion_module_version",
         type=str,
         default="v2",
-        choices=["v1", "v2", "concat"],
+        choices=["v1", "v2", "v3", "concat"],
         help="Cross-attention fusion variant (must match training; default 'v2').",
     )
     parser.add_argument(

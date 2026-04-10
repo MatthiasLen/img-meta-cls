@@ -530,11 +530,12 @@ def parse_args():
         "--fusion_module_version",
         type=str,
         default="v2",
-        choices=["v1", "v2", "concat"],
+        choices=["v1", "v2", "v3", "concat"],
         help=(
             "Cross-attention fusion variant for stage 2.  "
             "'v2' (default) uses sequence-style inputs with weighted pooling (reduce=False in encoders); "
             "'v1' uses mean-pooled single vectors (reduce=True in encoders); "
+            "'v3' is also supported; "
             "'concat' is a simple concatenation baseline.  "
             "Must match the value used when loading an existing stage-2 checkpoint."
         ),
