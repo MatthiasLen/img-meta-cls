@@ -669,7 +669,7 @@ def main() -> None:
                 incl_regression=args.incl_regression,
                 task_names=list(num_classes_dict.keys()),
             )
-            scaler = torch.amp.GradScaler("cuda", init_scale=2 ** 8)
+            scaler = torch.cuda.amp.GradScaler("cuda", init_scale=2 ** 8)
 
             # ---- trainer ---------------------------------------------------
             from IMC.trainer import Trainer

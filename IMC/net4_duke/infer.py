@@ -457,13 +457,12 @@ def run_inference(
 
     predictions: dict[str, list] = {task: [] for task in num_classes_dict}
     filepaths: list[str] = []
-    series_uids: list = []
 
     print(f"Running inference on {len(dataloader.dataset)} samples...")
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Inferring"):
-            images, metadata, paths, uids = batch
+            images, metadata, paths = batch
             images = images.to(device)
             metadata = metadata.to(device)
             images = normalize_per_sample(images)
@@ -481,7 +480,6 @@ def run_inference(
                 predictions[task].extend([label_maps[task][p] for p in preds])
 
             filepaths.extend(paths)
-            series_uids.extend(uids)
 
     # Derive binary contrast label from the phase prediction
     if "label_ContrastPhase" in label_maps:
@@ -490,7 +488,7 @@ def run_inference(
             for phase in predictions["label_ContrastPhase"]
         ]
 
-    output_df = pd.DataFrame({"Filepath": filepaths, "series_instance_uid": series_uids})
+    output_df = pd.DataFrame({"Filepath": filepaths})
     for task in predictions:
         output_df[task] = predictions[task]
 

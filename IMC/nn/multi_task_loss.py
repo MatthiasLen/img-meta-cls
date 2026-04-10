@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-import logging 
-import os 
+import logging
+import os
 from typing import List
 
 logger = logging.getLogger('IMC')

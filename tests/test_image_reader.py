@@ -390,7 +390,7 @@ class TestLiverDatasetReaderIntegration(_BaseDataloaderReaderTest):
         with mock.patch.object(ds._reader, "list_files", return_value=sentinel) as m:
             result = ds.get_bucket_filelist("series/001")
 
-        m.assert_called_once_with(Path(str(tmp_path)) / "series/001")
+        m.assert_called_once_with(Path(str(tmp_path)) / "series/001", series_uid=None)
         assert result is sentinel
 
     def test_calculate_slice_indices_delegates(self, tmp_path):
@@ -428,8 +428,14 @@ class TestDukeDatasetReaderIntegration(_BaseDataloaderReaderTest):
         sentinel = [Path(tmp_path / "s.dcm")]
         with mock.patch.object(ds._reader, "list_files", return_value=sentinel) as m:
             result = ds.get_bucket_filelist("series/001")
-        m.assert_called_once_with(Path(str(tmp_path)) / "series/001")
+        m.assert_called_once_with(Path(str(tmp_path)) / "series/001", series_uid=None)
         assert result is sentinel
+
+
+adni_dataloader = pytest.importorskip(
+    "IMC.data.adni_dataloader_local",
+    reason="IMC.data.adni_dataloader_local not available",
+)
 
 
 class TestADNIDatasetReaderIntegration(_BaseDataloaderReaderTest):

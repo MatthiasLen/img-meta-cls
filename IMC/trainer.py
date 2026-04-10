@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import time
 import math
 import numpy as np
@@ -54,7 +56,7 @@ class Trainer:
                  optimizer: torch.optim.Optimizer,
                  scheduler,
                  criterion,
-                 scaler: torch.amp.GradScaler,
+                 scaler: torch.cuda.amp.GradScaler,
                  tb_logger=None,
                  logger=None,
                  patience: int = 5,

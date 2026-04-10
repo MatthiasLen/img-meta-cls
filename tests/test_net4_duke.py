@@ -964,7 +964,7 @@ def _patch_duke_train_main_dependencies(args: argparse.Namespace):
                    mock_live_cls),
         mock.patch("torch.utils.data.DataLoader", return_value=mock_loader),
         mock.patch("IMC.trainer.Trainer", return_value=mock_trainer),
-        mock.patch("torch.amp.GradScaler"),
+        mock.patch("torch.cuda.amp.GradScaler"),
     ]
 
     started = [p.start() for p in patches]

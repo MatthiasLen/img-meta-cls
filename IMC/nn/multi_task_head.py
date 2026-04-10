@@ -70,9 +70,9 @@ class MultiTaskHead(nn.Module):
         """
         
         return [head(x) for _, head in self.tasks_heads.items()]
-    
 
-class MultiTaskHeadV0(nn.Module):
+
+class SimplifiedMultiTaskHead(nn.Module):
     """
     A simplified multi-task head with a single linear layer.
 
@@ -83,7 +83,7 @@ class MultiTaskHeadV0(nn.Module):
     This approach is less powerful than using separate heads for each task, as it
     forces all tasks to share the same final layer.
     """
-    def __init__(self, input_dim: int, num_classes_dict: dict, dropout: float = 0.1):
+    def __init__(self, input_dim: int, num_classes_dict: dict, dropout: float = 0.1, incl_regression: bool = True):
         super().__init__()
         self.tasks_heads = nn.Linear(input_dim, sum(num_classes_dict.values()))
         self.num_classes_dict = num_classes_dict
