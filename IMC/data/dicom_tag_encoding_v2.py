@@ -1,3 +1,19 @@
+"""DICOM metadata encoder — version 2 (legacy).
+
+.. deprecated::
+    Use the YAML-config-driven system in ``IMC.data.metadata`` instead.
+    Drop-in replacements in ``IMC.data.dicom_tag_encoding_yaml``:
+
+    * ``generate_slicewise_metadata_vector_yaml`` replaces
+      ``generate_slicewise_metadata_vector``
+    * ``generate_series_metadata_vector_yaml`` replaces
+      ``generate_series_metadata_vector``
+
+    Both reproduce identical 119-feature output when used with
+    ``IMC/data/configs/metadata_encoding_v2_slicewise.yaml`` or
+    ``IMC/data/configs/metadata_encoding_v2_series.yaml`` respectively.
+    See ``IMC/data/metadata/README.md`` for full documentation.
+"""
 import logging
 import os
 from ast import literal_eval
