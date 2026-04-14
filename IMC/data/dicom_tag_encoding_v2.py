@@ -9,9 +9,7 @@
     * ``generate_series_metadata_vector_yaml`` replaces
       ``generate_series_metadata_vector``
 
-    Both reproduce identical 119-feature output when used with
-    ``IMC/data/configs/metadata_encoding_v2_slicewise.yaml`` or
-    ``IMC/data/configs/metadata_encoding_v2_series.yaml`` respectively.
+    ``IMC/data/configs/metadata_encoding_v2_slicewise.yaml`` returns 119 features per slice, matching the output of ``generate_slicewise_metadata_vector``.
     See ``IMC/data/metadata/README.md`` for full documentation.
 """
 import logging
