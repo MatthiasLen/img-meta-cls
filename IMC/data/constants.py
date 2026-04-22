@@ -8,7 +8,7 @@ inference environments.
 """
 
 # Default label mappings for medical imaging classification (PV.ai labels)
-DEFAULT_LABEL_NAMES = {
+DEFAULT_LABEL_NAMES_OLD = {
     "label_SequenceType": [
         "T1", "T2", "DWI", "ADC", "SUB", "DIXON_F", 
         "DIXON_IN", "DIXON_OPP", "BOLUS", "OTHER", "na"
@@ -19,6 +19,16 @@ DEFAULT_LABEL_NAMES = {
     "label_ContrastPhase": ["pre", "art", "portven", "trans", "hepa", "na"],
     "label_Contrast": ["pre", "post", "na"],
     "label_Localizer": ["yes", "no", "na"],
+}
+
+DEFAULT_LABEL_NAMES = {
+    "label_SequenceContrast": ["T1", "T2", "ADC", "DWI", "BOLUS", "SUB", "MIP", "BALANCED", "OTHER", "na"],
+    "label_AcquisitionPlane": ["AX", "COR", "SAG", "na"],
+    "label_ContrastPhase": ["pre", "art", "portven", "trans", "hepa", "na"],
+    "label_Contrast": ["pre", "post", "na"],
+    "label_FatSat": ["yes", "no", "na"],
+    "label_DIXON": ["IN", "OPP", "FAT", "WATER", "na"],
+    "label_SpecialAcquisition": ["no", "LOC", "MRCP", "na"],
 }
 
 DUKE_LABEL_NAMES = {
