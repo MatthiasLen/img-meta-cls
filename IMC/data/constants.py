@@ -7,7 +7,7 @@ torch or other heavy libraries, making them safe to import in lightweight
 inference environments.
 """
 
-# Default label mappings for medical imaging classification (PV.ai labels)
+# Backwards compatibility with older code that references DEFAULT_LABEL_NAMES
 DEFAULT_LABEL_NAMES_OLD = {
     "label_SequenceType": [
         "T1", "T2", "DWI", "ADC", "SUB", "DIXON_F", 
@@ -20,7 +20,7 @@ DEFAULT_LABEL_NAMES_OLD = {
     "label_Contrast": ["pre", "post", "na"],
     "label_Localizer": ["yes", "no", "na"],
 }
-
+# Default label mappings for medical imaging classification (PV.ai labels)
 DEFAULT_LABEL_NAMES = {
     "label_SequenceContrast": ["T1", "T2", "ADC", "DWI", "BOLUS", "SUB", "MIP", "BALANCED", "OTHER", "na"],
     "label_AcquisitionPlane": ["AX", "COR", "SAG", "na"],
@@ -51,10 +51,18 @@ ADNI_LABEL_NAMES = {
     "label_Localizer": ["yes", "no", "na"],
 }
 
+# Backwards compatibility with older code that references DEFAULT_LABEL_NAMES
+BRAIN_LABEL_NAMES_OLD = {
+    "label_Contrast": ["pre", "post", "na"],
+    "label_SequenceContrast": ["ADC", "DWI", "OTHER", "PD", "T1", "T2", "T2FLAIR", "na"],
+    "label_AcquisitionPlane": ["AX", "COR", "SAG", "OBL", "na"],
+    "label_SpecialAcquisition": ["LOC", "no", "na"],
+}
+
 BRAIN_LABEL_NAMES = {
     "label_Contrast": ["pre", "post", "na"],
     "label_SequenceContrast": ["ADC", "DWI", "OTHER", "PD", "T1", "T2", "T2FLAIR", "na"],
-    "label_AcquisitionPlane": ["AX", "COR", "OBL", "SAG", "na"],
+    "label_AcquisitionPlane": ["AX", "COR", "SAG", "na"],
     "label_SpecialAcquisition": ["LOC", "no", "na"],
 }
 # Selected DICOM metadata features for model inference
