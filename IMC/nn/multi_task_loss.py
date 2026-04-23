@@ -30,13 +30,50 @@ class MultiTaskLoss(torch.nn.Module):
     The total loss is the weighted sum of the individual task losses.
     """
     
-    def __init__(self, label_smoothing: float = 0.1, incl_regression: bool = True, task_names: List[str] = None) -> None:
+    def __init__(
+        self,
+        label_smoothing: float = 0.1,
+        incl_regression: bool = True,
+        task_names: List[str] = None,
+        task_class_weights: dict = None,
+    ) -> None:
+        """
+        Args:
+            label_smoothing: Label smoothing factor for CrossEntropyLoss.
+            incl_regression: Whether a regression head is included for label_ContrastPhase.
+            task_names: Ordered list of task name strings matching model output order.
+            task_class_weights: Optional dict mapping task name → list of per-class weights.
+                E.g. ``{"label_DIXON": [0.29, 4.99, 5.08, 6.51, 0.0]}``.
+                Tasks not in this dict use the default unweighted CrossEntropyLoss.
+        """
         super().__init__()
-        self.ce_loss = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+        # Default shared losses (no per-class weighting)
+        self._default_ce = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         self.bce_loss = nn.BCEWithLogitsLoss()
         self.regression_loss = nn.MSELoss()
         self.incl_regression = incl_regression
         self.task_names = task_names
+        # Build per-task CE losses (only for tasks that have class weights)
+        self._task_ce: dict = {}
+        if task_class_weights:
+            for task, weights in task_class_weights.items():
+                w = torch.tensor(weights, dtype=torch.float32)
+                self._task_ce[task] = nn.CrossEntropyLoss(
+                    label_smoothing=label_smoothing,
+                    weight=w,
+                )
+
+    def _get_ce_loss(self, task_name: str, device, dtype=None) -> nn.CrossEntropyLoss:
+        """Return the appropriate CE loss for this task, moving weights to device/dtype if needed."""
+        if task_name in self._task_ce:
+            ce = self._task_ce[task_name]
+            if ce.weight is not None:
+                target = device if dtype is None else (device, dtype)
+                needs_move = ce.weight.device != device or (dtype is not None and ce.weight.dtype != dtype)
+                if needs_move:
+                    ce.weight = ce.weight.to(device=device, dtype=torch.float32 if dtype is None else dtype)
+            return ce
+        return self._default_ce
 
     def forward(self, preds: tuple, targets: tuple, masks: tuple, task_weights: List[float] | None = None) -> tuple[torch.Tensor, list]:
         """
@@ -58,30 +95,32 @@ class MultiTaskLoss(torch.nn.Module):
                 - individual_losses (list): A list of the individual loss values for each task.
         """
         individual_losses = []
-        total_loss = 0.0
+        task_losses = []  # only real (model-connected) losses
 
         for i, (pred, target, mask, task_name) in enumerate(zip(preds, targets, masks, self.task_names)):
             # Determine if there are any valid samples for this task in the batch
             valid_samples_mask = mask.bool()
             if not valid_samples_mask.any():
-                # No valid samples for this task, so loss is 0
-                task_loss = torch.tensor(0.0, device=pred.device)
+                # No valid samples for this task — record 0.0 but don't add to task_losses
+                individual_losses.append(0.0)
+                continue
+
+            # Filter predictions and targets to only include valid samples
+            valid_preds = pred[valid_samples_mask]
+            valid_targets = target[valid_samples_mask]
+
+            # Check if this is the regression task
+            is_regression = self.incl_regression and task_name == "label_ContrastPhase"
+
+            if is_regression:
+                task_loss = self.regression_loss(valid_preds.squeeze(1), valid_targets.to(valid_preds.dtype))
+            elif pred.shape[1] == 1:
+                # Binary classification task
+                task_loss = self.bce_loss(valid_preds.squeeze(1), valid_targets.float())
             else:
-                # Filter predictions and targets to only include valid samples
-                valid_preds = pred[valid_samples_mask]
-                valid_targets = target[valid_samples_mask]
+                # Multi-class classification task (with optional per-task class weights)    
 
-                # Check if this is the regression task
-                is_regression = self.incl_regression and task_name == "label_ContrastPhase"
-
-                if is_regression:
-                    task_loss = self.regression_loss(valid_preds.squeeze(1), valid_targets.to(valid_preds.dtype))
-                elif pred.shape[1] == 1:
-                    # Binary classification task
-                    task_loss = self.bce_loss(valid_preds.squeeze(1), valid_targets.float())
-                else:
-                    # Multi-class classification task
-                    task_loss = self.ce_loss(valid_preds, valid_targets.long())
+                task_loss = self._get_ce_loss(task_name, pred.device, pred.dtype)(valid_preds, valid_targets.long())
 
             # Apply task-specific weight if provided
             if task_weights is not None:
@@ -92,8 +131,16 @@ class MultiTaskLoss(torch.nn.Module):
                 if torch.isnan(task_loss).any() or torch.isinf(task_loss).any():
                     logger.error(f"Invalid loss for task {i}: {task_loss.item()}")
 
-            total_loss += task_loss
+            task_losses.append(task_loss)
             individual_losses.append(task_loss.item())
+
+        # All tasks were masked in this batch — return None to signal skip
+        if not task_losses:
+            if DEBUG_MODE:
+                logger.info("All tasks masked in this batch — no loss computed.")
+            return None, individual_losses
+
+        total_loss = sum(task_losses)
 
         if DEBUG_MODE:
             logger.info(f"Total loss: {total_loss.item()}")
