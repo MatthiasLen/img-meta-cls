@@ -64,7 +64,10 @@ class Trainer:
                  use_mixed_precision: bool = True,
                  incl_regression: bool = True,
                  profiler_dir: Optional[str] = None,
-                 use_z_score_norm: bool = True):
+                 use_z_score_norm: bool = True,
+                 task_names: Optional[list] = None,
+                 trainable_task_heads: Optional[list] = None,
+                 freeze_backbone: bool = False):
         self.model = model.to(device)
         self.device = device
         self.optimizer = optimizer
@@ -80,6 +83,87 @@ class Trainer:
         # Directory for torch.profiler TensorBoard traces (None = disabled)
         self.profiler_dir = profiler_dir
         self.use_z_score_norm = use_z_score_norm
+        self.task_names = task_names
+
+        # ---- selective fine-tuning ----------------------------------------
+        # freeze_backbone: freeze everything except multi_task_head submodule.
+        # trainable_task_heads: if set, additionally freeze all task heads
+        #   except the listed ones. Requires the model to have a
+        #   ``multi_task_head.tasks_heads`` ModuleDict.
+        if freeze_backbone or trainable_task_heads:
+            self._apply_finetune_freeze(freeze_backbone, trainable_task_heads)
+        self.trainable_task_heads = trainable_task_heads
+
+    def _apply_finetune_freeze(
+        self,
+        freeze_backbone: bool,
+        trainable_task_heads: Optional[list],
+    ) -> None:
+        """Freeze parameters according to the fine-tuning configuration.
+
+        Args:
+            freeze_backbone: If True, freeze all parameters outside the
+                ``multi_task_head`` submodule.
+            trainable_task_heads: List of task-head names (keys of
+                ``multi_task_head.tasks_heads``) to keep trainable.  All other
+                task heads are frozen.  If None, all task heads remain trainable.
+        """
+        if freeze_backbone:
+            frozen_backbone = 0
+            for name, param in self.model.named_parameters():
+                if not name.startswith("multi_task_head"):
+                    param.requires_grad = False
+                    frozen_backbone += 1
+            if self.logger:
+                self.logger.info(
+                    f"[Finetune] Frozen {frozen_backbone} backbone parameter tensors "
+                    f"(everything outside multi_task_head)."
+                )
+
+        if trainable_task_heads is not None:
+            head_module = getattr(self.model, "multi_task_head", None)
+            if head_module is None or not hasattr(head_module, "tasks_heads"):
+                if self.logger:
+                    self.logger.warning(
+                        "[Finetune] --trainable_task_heads specified but model has no "
+                        "`multi_task_head.tasks_heads` ModuleDict — skipping head freeze."
+                    )
+                return
+            frozen_heads = 0
+            unfrozen_heads = 0
+            for task_name, head in head_module.tasks_heads.items():
+                if task_name not in trainable_task_heads:
+                    for param in head.parameters():
+                        param.requires_grad = False
+                    frozen_heads += 1
+                else:
+                    for param in head.parameters():
+                        param.requires_grad = True  # ensure unfrozen even if backbone freeze ran
+                    unfrozen_heads += 1
+            if self.logger:
+                self.logger.info(
+                    f"[Finetune] Task heads — trainable: {trainable_task_heads} "
+                    f"({unfrozen_heads}), frozen: {frozen_heads}."
+                )
+
+        trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        total = sum(p.numel() for p in self.model.parameters())
+        if self.logger:
+            self.logger.info(
+                f"[Finetune] Trainable params: {trainable:,} / {total:,} "
+                f"({100*trainable/max(total,1):.1f}%)"
+            )
+
+        # Prune frozen params from the optimizer so GradScaler only tracks
+        # parameters that will actually receive gradients.
+        trainable_ids = {id(p) for p in self.model.parameters() if p.requires_grad}
+        for group in self.optimizer.param_groups:
+            group["params"] = [p for p in group["params"] if id(p) in trainable_ids]
+        self.optimizer.param_groups = [g for g in self.optimizer.param_groups if g["params"]]
+        if self.logger:
+            remaining = sum(len(g["params"]) for g in self.optimizer.param_groups)
+            self.logger.info(f"[Finetune] Optimizer pruned to {remaining} trainable parameter tensors.")
+
     def _classification_accuracies(self, outputs, targets, masks):
         """Compute per-task accuracies from logits and targets."""
         assert len(outputs) == len(targets)
@@ -89,7 +173,8 @@ class Trainer:
             target_np = target.detach().cpu().numpy()
             mask_np = mask.detach().cpu().numpy()
 
-            if self.incl_regression and i == 4:  # regression task
+            is_regression_task = self.task_names[i] == "label_ContrastPhase"
+            if self.incl_regression and is_regression_task:  # regression task
                 # For regression, we round predictions to nearest integer class
                 pred = np.rint(pred).astype(int)
                 pred_cls = np.clip(pred, 0, 4)  # Ensure predictions are within valid class range
@@ -154,6 +239,15 @@ class Trainer:
                 targets  = [t.to(self.device, non_blocking=True) for t in targets]
                 masks    = [m.to(self.device, non_blocking=True) for m in masks]
 
+            # For trainable task heads, if the masks indicate no valid samples for all the tasks to be trained, we can skip the forward and backward pass to save computation. This is especially beneficial when using selective fine-tuning with a small subset of trainable heads.
+            if self.trainable_task_heads is not None:
+                # Determine indices of trainable tasks
+                trainable_indices = [i for i, name in enumerate(self.task_names) if name in self.trainable_task_heads]
+                # Check if any of the trainable tasks have valid samples in this batch
+                if not any(masks[i].bool().any() for i in trainable_indices):
+                    if self.logger:
+                        self.logger.info(f"Batch {batch_id}: No valid samples for trainable tasks — skipping forward/backward.")
+                    continue
 
             self.optimizer.zero_grad()
 
@@ -170,6 +264,11 @@ class Trainer:
                     outputs = self.model(images, metadata)
 
             loss, indiv_losses = self.criterion(outputs, targets, masks, self.task_weights)
+
+            # All samples in the batch had "na" labels for every task — no
+            # learning signal. Skip backward + optimiser step entirely.
+            if loss is None:
+                continue
 
             # Check for NaN in loss and outputs
 
