@@ -55,7 +55,8 @@ class Trainer:
                  device: torch.device,
                  optimizer: torch.optim.Optimizer,
                  scheduler,
-                 criterion,
+                 criterion,                 
+                 task_names: list,
                  scaler: Optional[torch.amp.GradScaler],
                  tb_logger=None,
                  logger=None,
@@ -65,7 +66,6 @@ class Trainer:
                  incl_regression: bool = True,
                  profiler_dir: Optional[str] = None,
                  use_z_score_norm: bool = True,
-                 task_names: Optional[list] = None,
                  trainable_task_heads: Optional[list] = None,
                  freeze_backbone: bool = False):
         self.model = model.to(device)
