@@ -65,6 +65,13 @@ BRAIN_LABEL_NAMES = {
     "label_AcquisitionPlane": ["AX", "COR", "SAG", "na"],
     "label_SpecialAcquisition": ["LOC", "no", "na"],
 }
+
+CT_LABEL_NAMES = {
+    # Binary contrast detection; "na" kept as a third class so unknown-label
+    # rows can be masked out during training (same pattern as LiverDataset).
+    "label_Contrast": ["no", "yes", "na"],
+}
+
 # Selected DICOM metadata features for model inference
 # These features are extracted from encoded DICOM tags and used as input
 # to the neural network model alongside image data
