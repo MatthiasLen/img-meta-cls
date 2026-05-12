@@ -16,7 +16,7 @@ cd terraform
 terraform init
 terraform plan
 terraform apply
-# Note: alternatively use the script `init_validate_appy.sh`
+# Note: alternatively use the script `init_validate_apply.sh`
 ```
 
 Test the deployed service via curl:
@@ -110,6 +110,7 @@ python -m IMC.xgboost.cv
 ### Main Source (`IMC/`)
 - `network01.py` – `network07.py`: Evolution of model architectures (v01–v07)
 - `net4/`: Network 4 — cross-attention fusion on PV.AI liver, Brain MRI, and CT contrast — see [`IMC/net4/README.md`](IMC/net4/README.md)
+- `net4_duke/`: Network 4 adapted for Duke Liver MRI (5-fold CV) — see [`IMC/net4_duke/README.md`](IMC/net4_duke/README.md)
 - `net6/`: Network 6 — `PixelOnlyModel` on Duke; includes RF metadata gate — see [`IMC/net6/README.md`](IMC/net6/README.md)
 - `net7/`: Network 7 — `PyramidPooling3DClassifier` on Duke — see [`IMC/net7/README.md`](IMC/net7/README.md)
 - `xgboost/`: XGBoost metadata-only baseline (`cv.py`)
@@ -158,7 +159,6 @@ python -m IMC.xgboost.cv
 - `encode_ct_data.py`: CT-specific metadata encoding
 - `download_adni.py` / `download_ct_data.py`: Dataset download helpers
 - `scan_dicom_folder.py`: Scan and inventory a DICOM folder
-- `run_train.sh`: Shell wrapper for training runs
 
 ### MICCAI Experiments (`miccai/`)
 Summary of experiments and results for the MICCAI paper (`summary.md`).
