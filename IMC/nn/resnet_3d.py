@@ -4,9 +4,6 @@ Lightweight 3D ResNet-like backbone for volumetric medical image processing.
 This module provides a simple 3D CNN based on ResNet principles. It is designed
 to be a lightweight feature extractor for 3D volumes, suitable for tasks like
 volumetric classification.
-
-Authors: Claude Code
-Date: 2026
 """
 
 import torch

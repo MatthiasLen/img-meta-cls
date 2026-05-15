@@ -4,9 +4,6 @@
 This module implements Spatial Pyramid Pooling in 3D, which aggregates features
 from a convolutional feature map at multiple scales. This allows the network to
 handle inputs of varying sizes and capture context at different levels.
-
-Authors: Claude Code
-Date: 2026
 """
 
 import torch

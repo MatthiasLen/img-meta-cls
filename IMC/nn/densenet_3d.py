@@ -6,9 +6,6 @@ to be a lightweight feature extractor for 3D volumes, suitable for tasks like
 volumetric classification. DenseNet uses dense connectivity where each layer
 receives feature maps from all preceding layers, promoting feature reuse and
 gradient flow.
-
-Authors: Claude Code
-Date: 2026
 """
 
 import torch
