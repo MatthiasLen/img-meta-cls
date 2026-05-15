@@ -155,9 +155,8 @@ IMC/
 tests/         unit tests for loaders, encoders, and Duke workflows
 ```
 
-## Notes On Reproducibility
+## Notes 
 
-- The scripts no longer assume author-specific filesystem paths.
 - Dataset configuration must be supplied explicitly through env vars or CLI args.
 - Some optional backbones and older experimental modules remain in the codebase but are not the main public reproduction path for the paper.
 
