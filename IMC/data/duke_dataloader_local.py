@@ -33,7 +33,6 @@ from IMC.data.image_reader import calculate_slice_indices, DicomImageReader
 from torch.utils.data import DataLoader, Dataset
 
 from IMC.data.augment import augment
-from IMC.data.dicom_tag_encoding_v2 import encode_dicom_tags_by_version
 from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES, DEFAULT_LABEL_NAMES, SELECTED_FEATURES
 
 logger = logging.getLogger("IMC")
@@ -211,9 +210,11 @@ class LiverDataset(Dataset):
                 metadata_df = pd.read_parquet(self.metadata_path)
                 logger.info(f"Loaded {len(metadata_df)} samples from metadata Parquet {self.metadata_path}")
             else:
-                # Fallback to legacy DICOM tag encoding if Parquet metadata is not found
-                logger.warning("Metadata Parquet file not found. Falling back to legacy DICOM encoding.")
-                metadata_df = encode_dicom_tags_by_version(labels_df)
+                raise FileNotFoundError(
+                    f"Metadata Parquet file not found at '{self.metadata_path}'. "
+                    "A pre-encoded metadata Parquet file is required. "
+                    "Set METADATA_PATH or pass --metadata_path to point to the file."
+                )
             metadata_df = metadata_df.set_index("Filepath")
             labels_df = labels_df.set_index("Filepath")
             metadata_df.index = metadata_df.index.map(self._normalize_dataset_index)

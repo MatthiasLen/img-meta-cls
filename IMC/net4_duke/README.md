@@ -53,13 +53,6 @@ IMC/net4_duke/
 ├── summarize_cv.py  – CV fold aggregation and report generation
 └── README.md        – This file
 ```
-
-`build_model` is also re-exported at the package level for convenience:
-
-```python
-from IMC.net4_duke import build_model
-```
-
 ---
 
 ## 1. Training (5-fold cross-validation)

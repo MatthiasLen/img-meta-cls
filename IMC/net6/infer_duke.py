@@ -399,6 +399,7 @@ def main(args: argparse.Namespace) -> None:
         print("=" * 80)
         label_csv_path = os.environ["LABEL_CSV_PATH"]
         label_df = pd.read_csv(label_csv_path)
+        label_df["Filepath"] = label_df["Filepath"].map(dataloader.dataset._normalize_dataset_index)
         run_evaluation(pred_df, label_df, args.output_dir)
         print(f"✓ Evaluation results saved to {args.output_dir}")
 

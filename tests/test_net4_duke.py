@@ -48,8 +48,7 @@ import torch.nn as nn
 DUKE_NUM_CLASSES_DICT: dict[str, int] = {"SequenceType_Code_norm": 13}
 DUKE_LABEL_NAMES: dict[str, dict[int, str]] = {
     "SequenceType_Code_norm": {
-        i: lbl for i, lbl in enumerate(["A", "B", "C", "D", "E", "F", "G",
-                                         "H", "I", "J", "K", "L", "M"])
+        i: lbl for i, lbl in enumerate(["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"])
     }
 }
 METADATA_DIM = 88
@@ -136,6 +135,7 @@ def _make_duke_infer_args(**overrides) -> argparse.Namespace:
 # 2. init_weights
 # ===========================================================================
 
+
 class TestInitWeights:
     """Tests for :func:`~IMC.net4_duke.train.init_weights`."""
 
@@ -196,6 +196,7 @@ class TestInitWeights:
 # 3. create_optimizer
 # ===========================================================================
 
+
 class TestCreateOptimizer:
     """Tests for :func:`~IMC.net4_duke.train.create_optimizer`."""
 
@@ -251,6 +252,7 @@ class TestCreateOptimizer:
 # 4. get_scheduler
 # ===========================================================================
 
+
 class TestGetScheduler:
     """Tests for :func:`~IMC.net4_duke.train.get_scheduler`."""
 
@@ -293,9 +295,7 @@ class TestGetScheduler:
             lrs.append(sched.get_last_lr()[0])
 
         post_warmup = lrs[warmup:]
-        assert post_warmup[-1] < post_warmup[0], (
-            "LR should decrease during cosine decay phase."
-        )
+        assert post_warmup[-1] < post_warmup[0], "LR should decrease during cosine decay phase."
 
     def test_min_scale_factor_respected(self) -> None:
         """LR must never fall below base_lr * min_scale_factor."""
@@ -304,8 +304,7 @@ class TestGetScheduler:
         base_lr = 1.0
         min_sf = 0.05
         opt = self._make_optimizer(lr=base_lr)
-        sched = get_scheduler(opt, warmup_steps=5, total_steps=50,
-                               min_scale_factor=min_sf)
+        sched = get_scheduler(opt, warmup_steps=5, total_steps=50, min_scale_factor=min_sf)
         for _ in range(100):
             sched.step()
             lr = sched.get_last_lr()[0]
@@ -316,6 +315,7 @@ class TestGetScheduler:
 # 5. train.parse_args – Duke-specific defaults
 # ===========================================================================
 
+
 class TestDukeTrainParseArgs:
     """Tests for :func:`~IMC.net4_duke.train.parse_args` Duke-specific defaults."""
 
@@ -324,6 +324,7 @@ class TestDukeTrainParseArgs:
         argv = ["train.py", "--modality", "combined"]
         with mock.patch("sys.argv", argv):
             from IMC.net4_duke import train as train_module
+
             args = train_module.parse_args()
 
         assert args.modality == "combined"
@@ -357,6 +358,7 @@ class TestDukeTrainParseArgs:
         with pytest.raises(SystemExit):
             with mock.patch("sys.argv", ["train.py"]):
                 from IMC.net4_duke import train as train_module
+
                 train_module.parse_args()
 
     def test_folds_string_stored_as_is(self) -> None:
@@ -364,6 +366,7 @@ class TestDukeTrainParseArgs:
         argv = ["train.py", "--modality", "combined", "--folds", "0,2,4"]
         with mock.patch("sys.argv", argv):
             from IMC.net4_duke import train as train_module
+
             args = train_module.parse_args()
         assert args.folds == "0,2,4"
 
@@ -372,6 +375,7 @@ class TestDukeTrainParseArgs:
         argv = ["train.py", "--modality", "image", "--n_folds", "3"]
         with mock.patch("sys.argv", argv):
             from IMC.net4_duke import train as train_module
+
             args = train_module.parse_args()
         assert args.n_folds == 3
 
@@ -380,8 +384,7 @@ class TestDukeTrainParseArgs:
         from IMC.net4_duke import train as train_module
 
         for enc in ("imputer", "sparse"):
-            argv = ["train.py", "--modality", "combined",
-                    "--metadata_enc_type", enc]
+            argv = ["train.py", "--modality", "combined", "--metadata_enc_type", enc]
             with mock.patch("sys.argv", argv):
                 args = train_module.parse_args()
             assert args.metadata_enc_type == enc
@@ -389,10 +392,10 @@ class TestDukeTrainParseArgs:
     def test_metadata_enc_type_invalid_raises(self) -> None:
         """An invalid --metadata_enc_type value must cause SystemExit."""
         with pytest.raises(SystemExit):
-            argv = ["train.py", "--modality", "combined",
-                    "--metadata_enc_type", "invalid_enc"]
+            argv = ["train.py", "--modality", "combined", "--metadata_enc_type", "invalid_enc"]
             with mock.patch("sys.argv", argv):
                 from IMC.net4_duke import train as train_module
+
                 train_module.parse_args()
 
     def test_debug_flag(self) -> None:
@@ -400,15 +403,16 @@ class TestDukeTrainParseArgs:
         argv = ["train.py", "--modality", "combined", "--debug"]
         with mock.patch("sys.argv", argv):
             from IMC.net4_duke import train as train_module
+
             args = train_module.parse_args()
         assert args.debug is True
 
     def test_dataset_path_optional(self) -> None:
         """--dataset_path must be accepted and stored."""
-        argv = ["train.py", "--modality", "combined",
-                "--dataset_path", "/custom/data"]
+        argv = ["train.py", "--modality", "combined", "--dataset_path", "/custom/data"]
         with mock.patch("sys.argv", argv):
             from IMC.net4_duke import train as train_module
+
             args = train_module.parse_args()
         assert args.dataset_path == "/custom/data"
 
@@ -416,6 +420,7 @@ class TestDukeTrainParseArgs:
 # ===========================================================================
 # 6. _configure_dataset_env – train and infer
 # ===========================================================================
+
 
 class TestDukeConfigureDatasetEnv:
     """Tests for both
@@ -560,6 +565,7 @@ class TestDukeConfigureDatasetEnv:
 # 7. load_model
 # ===========================================================================
 
+
 class TestDukeLoadModel:
     """Tests for :func:`~IMC.net4_duke.infer.load_model`."""
 
@@ -574,9 +580,7 @@ class TestDukeLoadModel:
 
         # build_model is mocked to avoid real construction
         mock_model = mock.MagicMock(spec=nn.Module)
-        with mock.patch("IMC.net4_duke.infer.load_model.__module__"):
-            pass  # ensure import
-        with mock.patch("IMC.net4.helper.build_model", return_value=mock_model):
+        with mock.patch("IMC.net4_duke.helper.build_model", return_value=mock_model):
             with pytest.raises(FileNotFoundError):
                 load_model(
                     args,
@@ -598,8 +602,7 @@ class TestDukeLoadModel:
             torch.save({"model_state_dict": {}}, ckpt_path)
 
             args = _make_duke_infer_args(ckpt=ckpt_path, modality="image")
-            with mock.patch("IMC.net4.helper.build_model",
-                            return_value=mock_model):
+            with mock.patch("IMC.net4_duke.helper.build_model", return_value=mock_model):
                 result = load_model(
                     args,
                     DUKE_NUM_CLASSES_DICT,
@@ -623,8 +626,7 @@ class TestDukeLoadModel:
             torch.save({"model_state_dict": {}}, ckpt_path)
 
             args = _make_duke_infer_args(ckpt=ckpt_path, modality="image")
-            with mock.patch("IMC.net4.helper.build_model",
-                            return_value=mock_model):
+            with mock.patch("IMC.net4_duke.helper.build_model", return_value=mock_model):
                 load_model(
                     args,
                     DUKE_NUM_CLASSES_DICT,
@@ -650,8 +652,7 @@ class TestDukeLoadModel:
             mock_model.to.return_value = mock_model
 
             args = _make_duke_infer_args(ckpt=ckpt_path, modality="image")
-            with mock.patch("IMC.net4.helper.build_model",
-                            return_value=mock_model):
+            with mock.patch("IMC.net4_duke.helper.build_model", return_value=mock_model):
                 load_model(
                     args,
                     DUKE_NUM_CLASSES_DICT,
@@ -670,14 +671,15 @@ class TestDukeLoadModel:
 # 8. infer.parse_args – Duke-specific defaults
 # ===========================================================================
 
+
 class TestDukeInferParseArgs:
     """Tests for :func:`~IMC.net4_duke.infer.parse_args` Duke defaults."""
 
     def test_defaults(self) -> None:
-        argv = ["infer.py", "--ckpt", "/ckpt.pth",
-                "--output_dir", "/out", "--modality", "combined"]
+        argv = ["infer.py", "--ckpt", "/ckpt.pth", "--output_dir", "/out", "--modality", "combined"]
         with mock.patch("sys.argv", argv):
             from IMC.net4_duke import infer as infer_module
+
             args = infer_module.parse_args()
 
         assert args.modality == "combined"
@@ -694,51 +696,68 @@ class TestDukeInferParseArgs:
     def test_modality_required(self) -> None:
         """Omitting --modality must cause SystemExit."""
         with pytest.raises(SystemExit):
-            with mock.patch("sys.argv",
-                            ["infer.py", "--ckpt", "/p.pth",
-                             "--output_dir", "/d"]):
+            with mock.patch("sys.argv", ["infer.py", "--ckpt", "/p.pth", "--output_dir", "/d"]):
                 from IMC.net4_duke import infer as infer_module
+
                 infer_module.parse_args()
 
     def test_ckpt_and_output_required(self) -> None:
         """Omitting required --ckpt / --output_dir must exit."""
         with pytest.raises(SystemExit):
-            with mock.patch("sys.argv",
-                            ["infer.py", "--modality", "combined"]):
+            with mock.patch("sys.argv", ["infer.py", "--modality", "combined"]):
                 from IMC.net4_duke import infer as infer_module
+
                 infer_module.parse_args()
 
     def test_run_eval_flag(self) -> None:
-        argv = ["infer.py", "--ckpt", "/c.pth", "--output_dir", "/o",
-                "--modality", "image", "--run_eval"]
+        argv = ["infer.py", "--ckpt", "/c.pth", "--output_dir", "/o", "--modality", "image", "--run_eval"]
         with mock.patch("sys.argv", argv):
             from IMC.net4_duke import infer as infer_module
+
             args = infer_module.parse_args()
         assert args.run_eval is True
 
     def test_folds_stored_as_string(self) -> None:
-        argv = ["infer.py", "--ckpt", "/c.pth", "--output_dir", "/o",
-                "--modality", "combined", "--folds", "0,1,2"]
+        argv = ["infer.py", "--ckpt", "/c.pth", "--output_dir", "/o", "--modality", "combined", "--folds", "0,1,2"]
         with mock.patch("sys.argv", argv):
             from IMC.net4_duke import infer as infer_module
+
             args = infer_module.parse_args()
         assert args.folds == "0,1,2"
 
     def test_metadata_enc_type_invalid_raises(self) -> None:
         """An invalid --metadata_enc_type value must cause SystemExit."""
         with pytest.raises(SystemExit):
-            argv = ["infer.py", "--ckpt", "/c.pth", "--output_dir", "/o",
-                    "--modality", "combined",
-                    "--metadata_enc_type", "invalid_enc"]
+            argv = [
+                "infer.py",
+                "--ckpt",
+                "/c.pth",
+                "--output_dir",
+                "/o",
+                "--modality",
+                "combined",
+                "--metadata_enc_type",
+                "invalid_enc",
+            ]
             with mock.patch("sys.argv", argv):
                 from IMC.net4_duke import infer as infer_module
+
                 infer_module.parse_args()
 
     def test_vanilla_classifier_flag(self) -> None:
-        argv = ["infer.py", "--ckpt", "/c.pth", "--output_dir", "/o",
-                "--modality", "image", "--vanilla_image_classifier"]
+        argv = [
+            "infer.py",
+            "--ckpt",
+            "/c.pth",
+            "--output_dir",
+            "/o",
+            "--modality",
+            "image",
+            "--vanilla_image_classifier",
+        ]
         with mock.patch("sys.argv", argv):
             from IMC.net4_duke import infer as infer_module
+
             args = infer_module.parse_args()
         assert args.vanilla_image_classifier is True
 
@@ -746,6 +765,7 @@ class TestDukeInferParseArgs:
 # ===========================================================================
 # 9. run_inference() – mock-based tests
 # ===========================================================================
+
 
 def _make_mock_duke_dataloader(batches: list) -> mock.MagicMock:
     """Return a mock DataLoader with Duke-specific dataset attributes."""
@@ -761,9 +781,7 @@ def _make_mock_duke_dataloader(batches: list) -> mock.MagicMock:
 
 def _make_mock_duke_model(batch_size: int = BATCH_SIZE) -> mock.MagicMock:
     """Return a mock model that returns argmax=0 logits for every Duke task."""
-    outputs = tuple(
-        torch.zeros(batch_size, n) for n in DUKE_NUM_CLASSES_DICT.values()
-    )
+    outputs = tuple(torch.zeros(batch_size, n) for n in DUKE_NUM_CLASSES_DICT.values())
     model = mock.MagicMock()
     model.return_value = outputs
     return model
@@ -786,8 +804,7 @@ class TestDukeRunInference:
     @pytest.fixture(autouse=True)
     def _patch_normalize(self):
         """Patch normalize_per_sample to identity."""
-        with mock.patch("IMC.net4_duke.infer.normalize_per_sample",
-                        side_effect=lambda x: x):
+        with mock.patch("IMC.net4_duke.infer.normalize_per_sample", side_effect=lambda x: x):
             yield
 
     def _single_batch_dl(self, batch_size: int = BATCH_SIZE):
@@ -850,14 +867,12 @@ class TestDukeRunInference:
         from IMC.net4_duke.infer import run_inference
 
         batch1 = (_make_image_input(2), _make_metadata_input(2), ["/a/1", "/a/2"])
-        batch2 = (_make_image_input(3), _make_metadata_input(3),
-                  ["/b/1", "/b/2", "/b/3"])
+        batch2 = (_make_image_input(3), _make_metadata_input(3), ["/b/1", "/b/2", "/b/3"])
         dl = _make_mock_duke_dataloader([batch1, batch2])
 
         def flexible_fwd(imgs, meta):
             B = imgs.shape[0]
-            return tuple(torch.zeros(B, n)
-                         for n in DUKE_NUM_CLASSES_DICT.values())
+            return tuple(torch.zeros(B, n) for n in DUKE_NUM_CLASSES_DICT.values())
 
         model = mock.MagicMock()
         model.side_effect = flexible_fwd
@@ -918,6 +933,7 @@ class TestDukeRunInference:
 # 10. train.main() – mock-based orchestration tests
 # ===========================================================================
 
+
 def _make_main_duke_train_args(**overrides) -> argparse.Namespace:
     """Minimal args for train.main() without real data."""
     defaults = dict(
@@ -933,7 +949,7 @@ def _make_main_duke_train_args(**overrides) -> argparse.Namespace:
         debug=False,
         incl_regression=False,
         folds=None,
-        n_folds=2,               # small n_folds to keep test fast
+        n_folds=2,  # small n_folds to keep test fast
         dataset_path=None,
         metadata_path=None,
         label_csv_path=None,
@@ -979,16 +995,15 @@ def _patch_duke_train_main_dependencies(args: argparse.Namespace):
     patches = [
         mock.patch("IMC.net4_duke.train.parse_args", return_value=args),
         mock.patch("IMC.net4_duke.train._configure_dataset_env"),
-        mock.patch("IMC.net4_duke.train.setup_combined_logging",
-                   return_value=(mock_logger, "/tmp/test.log", mock_tb_logger)),
+        mock.patch(
+            "IMC.net4_duke.train.setup_combined_logging", return_value=(mock_logger, "/tmp/test.log", mock_tb_logger)
+        ),
         mock.patch("IMC.net4_duke.train.log_training_start"),
         mock.patch("IMC.net4_duke.train.log_training_end"),
-        mock.patch("IMC.net4_duke.train.capture_console_to_log",
-                   return_value=contextlib.nullcontext()),
+        mock.patch("IMC.net4_duke.train.capture_console_to_log", return_value=contextlib.nullcontext()),
         mock.patch("IMC.net4_duke.train.build_model", return_value=mock_model),
         mock.patch("IMC.net4_duke.train.MultiTaskLoss"),
-        mock.patch("IMC.data.duke_dataloader_local.LiverDataset",
-                   mock_live_cls),
+        mock.patch("IMC.data.duke_dataloader_local.LiverDataset", mock_live_cls),
         mock.patch("torch.utils.data.DataLoader", return_value=mock_loader),
         mock.patch("IMC.trainer.Trainer", return_value=mock_trainer),
         mock.patch("torch.cuda.amp.GradScaler"),
@@ -1022,6 +1037,7 @@ class TestDukeTrainMain:
             args = _make_main_duke_train_args(log_dir=tmpdir)
             with _patch_duke_train_main_dependencies(args) as ctx:
                 from IMC.net4_duke.train import main
+
                 main()
             # n_folds=2 → fit called twice
             assert ctx["trainer"].fit.call_count == args.n_folds
@@ -1032,6 +1048,7 @@ class TestDukeTrainMain:
             args = _make_main_duke_train_args(log_dir=tmpdir)
             with _patch_duke_train_main_dependencies(args) as ctx:
                 from IMC.net4_duke.train import main
+
                 main()
             assert ctx["trainer"].test.call_count == args.n_folds
 
@@ -1041,6 +1058,7 @@ class TestDukeTrainMain:
             args = _make_main_duke_train_args(log_dir=tmpdir)
             with _patch_duke_train_main_dependencies(args) as ctx:
                 from IMC.net4_duke.train import main
+
                 main()
             assert ctx["trainer"].load_checkpoint.call_count == args.n_folds
 
@@ -1050,13 +1068,11 @@ class TestDukeTrainMain:
             args = _make_main_duke_train_args(log_dir=tmpdir, n_folds=2)
             with _patch_duke_train_main_dependencies(args):
                 from IMC.net4_duke.train import main
+
                 main()
 
             config_files = [
-                os.path.join(root, f)
-                for root, _, files in os.walk(tmpdir)
-                for f in files
-                if f == "config.json"
+                os.path.join(root, f) for root, _, files in os.walk(tmpdir) for f in files if f == "config.json"
             ]
             assert len(config_files) == args.n_folds
 
@@ -1064,18 +1080,18 @@ class TestDukeTrainMain:
         """Each config.json must contain the training modality."""
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_main_duke_train_args(
-                log_dir=tmpdir, modality="image", n_folds=1,
+                log_dir=tmpdir,
+                modality="image",
+                n_folds=1,
                 folds="0",
             )
             with _patch_duke_train_main_dependencies(args):
                 from IMC.net4_duke.train import main
+
                 main()
 
             config_files = [
-                os.path.join(root, f)
-                for root, _, files in os.walk(tmpdir)
-                for f in files
-                if f == "config.json"
+                os.path.join(root, f) for root, _, files in os.walk(tmpdir) for f in files if f == "config.json"
             ]
             assert config_files
             with open(config_files[0]) as fh:
@@ -1088,13 +1104,11 @@ class TestDukeTrainMain:
             args = _make_main_duke_train_args(log_dir=tmpdir)
             with _patch_duke_train_main_dependencies(args):
                 from IMC.net4_duke.train import main
+
                 main()
 
             summary_files = [
-                os.path.join(root, f)
-                for root, _, files in os.walk(tmpdir)
-                for f in files
-                if f == "cv_summary.csv"
+                os.path.join(root, f) for root, _, files in os.walk(tmpdir) for f in files if f == "cv_summary.csv"
             ]
             assert summary_files, "cv_summary.csv was not written"
 
@@ -1102,10 +1116,13 @@ class TestDukeTrainMain:
         """With --folds '0', only fold 0 is trained (fit called once)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_main_duke_train_args(
-                log_dir=tmpdir, folds="0", n_folds=3,
+                log_dir=tmpdir,
+                folds="0",
+                n_folds=3,
             )
             with _patch_duke_train_main_dependencies(args) as ctx:
                 from IMC.net4_duke.train import main
+
                 main()
             assert ctx["trainer"].fit.call_count == 1
 
@@ -1113,10 +1130,13 @@ class TestDukeTrainMain:
         """A fold index out of [0, n_folds-1] must raise ValueError."""
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_main_duke_train_args(
-                log_dir=tmpdir, folds="9", n_folds=5,
+                log_dir=tmpdir,
+                folds="9",
+                n_folds=5,
             )
             with _patch_duke_train_main_dependencies(args):
                 from IMC.net4_duke.train import main
+
                 with pytest.raises(ValueError):
                     main()
 
@@ -1124,13 +1144,15 @@ class TestDukeTrainMain:
         """build_model must receive the correct modality per fold."""
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_main_duke_train_args(
-                log_dir=tmpdir, modality="metadata",
-                folds="0", n_folds=3,
+                log_dir=tmpdir,
+                modality="metadata",
+                folds="0",
+                n_folds=3,
             )
             with _patch_duke_train_main_dependencies(args) as ctx:
-                with mock.patch("IMC.net4_duke.train.build_model",
-                                return_value=ctx["model"]) as mock_bm:
+                with mock.patch("IMC.net4_duke.train.build_model", return_value=ctx["model"]) as mock_bm:
                     from IMC.net4_duke.train import main
+
                     main()
                 assert mock_bm.call_count >= 1
                 call_kwargs = mock_bm.call_args[1]
@@ -1143,6 +1165,7 @@ class TestDukeTrainMain:
             args = _make_main_duke_train_args(log_dir=tmpdir, debug=True)
             with _patch_duke_train_main_dependencies(args) as ctx:
                 from IMC.net4_duke.train import main
+
                 main()
             # Retrieve the captured args that _configure_dataset_env was called with
             cfg_mock = ctx["mocks"][1]
@@ -1154,6 +1177,7 @@ class TestDukeTrainMain:
 # ===========================================================================
 # 11. infer.main() – mock-based orchestration tests
 # ===========================================================================
+
 
 def _make_main_duke_infer_args(**overrides) -> argparse.Namespace:
     """Minimal args for infer.main() without real data."""
@@ -1191,10 +1215,12 @@ def _patch_duke_infer_main_dependencies(
 ):
     """Context manager mocking I/O-heavy dependencies of infer.main()."""
     if pred_df is None:
-        pred_df = pd.DataFrame({
-            "Filepath": ["/duke/s1", "/duke/s2"],
-            "SequenceType_Code_norm": ["A", "B"],
-        })
+        pred_df = pd.DataFrame(
+            {
+                "Filepath": ["/duke/s1", "/duke/s2"],
+                "SequenceType_Code_norm": ["A", "B"],
+            }
+        )
 
     mock_dataset = mock.MagicMock()
     mock_dataset.get_n_labels.return_value = DUKE_NUM_CLASSES_DICT
@@ -1208,8 +1234,7 @@ def _patch_duke_infer_main_dependencies(
     patches = [
         mock.patch("IMC.net4_duke.infer.parse_args", return_value=args),
         mock.patch("IMC.net4_duke.infer._configure_dataset_env"),
-        mock.patch("IMC.net4_duke.infer.create_inference_dataloader",
-                   return_value=mock_loader),
+        mock.patch("IMC.net4_duke.infer.create_inference_dataloader", return_value=mock_loader),
         mock.patch("IMC.net4_duke.infer.load_model", return_value=mock_model),
         mock.patch("IMC.net4_duke.infer.run_inference", return_value=pred_df),
         mock.patch("IMC.net4_duke.infer.run_evaluation"),
@@ -1241,19 +1266,23 @@ class TestDukeInferMain:
             args = _make_main_duke_infer_args(output_dir=tmpdir)
             with _patch_duke_infer_main_dependencies(args):
                 from IMC.net4_duke.infer import main
+
                 main()
             assert os.path.isfile(os.path.join(tmpdir, "predictions.csv"))
 
     def test_predictions_csv_has_correct_content(self) -> None:
         """Saved predictions.csv must reflect the mocked pred_df."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            pred = pd.DataFrame({
-                "Filepath": ["/duke/s1"],
-                "SequenceType_Code_norm": ["C"],
-            })
+            pred = pd.DataFrame(
+                {
+                    "Filepath": ["/duke/s1"],
+                    "SequenceType_Code_norm": ["C"],
+                }
+            )
             args = _make_main_duke_infer_args(output_dir=tmpdir)
             with _patch_duke_infer_main_dependencies(args, pred_df=pred):
                 from IMC.net4_duke.infer import main
+
                 main()
             saved = pd.read_csv(os.path.join(tmpdir, "predictions.csv"))
             assert "Filepath" in saved.columns
@@ -1265,6 +1294,7 @@ class TestDukeInferMain:
             args = _make_main_duke_infer_args(output_dir=tmpdir)
             with _patch_duke_infer_main_dependencies(args):
                 from IMC.net4_duke.infer import main
+
                 main()
             meta_path = os.path.join(tmpdir, "inference_metadata.json")
             assert os.path.isfile(meta_path)
@@ -1287,6 +1317,7 @@ class TestDukeInferMain:
             with _patch_duke_infer_main_dependencies(args) as ctx:
                 with mock.patch.dict(os.environ, {"LABEL_CSV_PATH": label_csv}):
                     from IMC.net4_duke.infer import main
+
                     main()
             ctx["run_evaluation"].assert_called_once()
 
@@ -1296,6 +1327,7 @@ class TestDukeInferMain:
             args = _make_main_duke_infer_args(output_dir=tmpdir, run_eval=False)
             with _patch_duke_infer_main_dependencies(args) as ctx:
                 from IMC.net4_duke.infer import main
+
                 main()
             ctx["run_evaluation"].assert_not_called()
 
@@ -1305,6 +1337,7 @@ class TestDukeInferMain:
             args = _make_main_duke_infer_args(output_dir=tmpdir)
             with _patch_duke_infer_main_dependencies(args) as ctx:
                 from IMC.net4_duke.infer import main
+
                 main()
             ctx["run_inference"].assert_called_once()
 
@@ -1313,9 +1346,9 @@ class TestDukeInferMain:
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_main_duke_infer_args(output_dir=tmpdir, modality="image")
             with _patch_duke_infer_main_dependencies(args) as ctx:
-                with mock.patch("IMC.net4_duke.infer.load_model",
-                                return_value=ctx["model"]) as mock_lm:
+                with mock.patch("IMC.net4_duke.infer.load_model", return_value=ctx["model"]) as mock_lm:
                     from IMC.net4_duke.infer import main
+
                     main()
                 mock_lm.assert_called_once()
                 call_args = mock_lm.call_args
@@ -1327,6 +1360,7 @@ class TestDukeInferMain:
             args = _make_main_duke_infer_args(output_dir=tmpdir, folds="0,1")
             with _patch_duke_infer_main_dependencies(args) as ctx:
                 from IMC.net4_duke.infer import main
+
                 main()
             call_kwargs = ctx["create_inference_dataloader"].call_args[1]
             assert call_kwargs["fold_indices"] == [0, 1]
@@ -1337,6 +1371,7 @@ class TestDukeInferMain:
             args = _make_main_duke_infer_args(output_dir=tmpdir, folds=None)
             with _patch_duke_infer_main_dependencies(args) as ctx:
                 from IMC.net4_duke.infer import main
+
                 main()
             call_kwargs = ctx["create_inference_dataloader"].call_args[1]
             assert call_kwargs["fold_indices"] is None

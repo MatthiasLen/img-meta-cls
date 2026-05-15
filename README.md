@@ -73,7 +73,7 @@ uv run pytest -q
 
 ### Network 4: multimodal image + metadata fusion on Duke
 
-See the [Network v04 architecture README](IMC/net4/README.md) for the shared multimodal model design and the [Duke workflow README](IMC/net4_duke/README.md) for training, inference, and CV details.
+See the [Network v04 README](IMC/net4_duke/README.md) for the multimodal model design and the Duke training, inference, and CV workflow details.
 
 Train 5-fold cross-validation:
 
