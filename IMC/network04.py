@@ -56,7 +56,6 @@ from IMC.nn.metadata_encoder import MetadataEncoder
 from IMC.nn.sparse_metadata_encoder import SparseMetadataEncoder as SparseEncoderV1
 from IMC.nn.sparse_metadata_encoder_v2 import SparseMetadataEncoder as SparseEncoderV2
 from IMC.nn.sparse_metadata_encoder_v5 import SparseMetadataEncoder as SparseEncoderV5
-from IMC.nn.emb_metadata_encoder import FTTransformerLikeMetadataEncoder
 from IMC.nn.multi_task_head import MultiTaskHead
 
 from torchvision.models.densenet import DenseNet121_Weights

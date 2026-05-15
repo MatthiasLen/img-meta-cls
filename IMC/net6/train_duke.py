@@ -524,6 +524,7 @@ def main(args: argparse.Namespace) -> None:
                 optimizer=optimizer,
                 scheduler=scheduler,
                 criterion=criterion,
+                task_names=list(DUKE_ORIGINAL_LABEL_NAMES.keys()),
                 scaler=scaler,
                 tb_logger=tb_logger,
                 logger=logger,
