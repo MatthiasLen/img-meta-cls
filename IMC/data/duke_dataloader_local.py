@@ -208,7 +208,7 @@ class LiverDataset(Dataset):
             else:
                 # Fallback to legacy DICOM tag encoding if Parquet metadata is not found
                 logger.warning("Metadata Parquet file not found. Falling back to legacy DICOM encoding.")
-                metadata_df = encode_dicom_tags_by_version(labels_df, dicom_encoding_version="brain")
+                metadata_df = encode_dicom_tags_by_version(labels_df)
             metadata_df = metadata_df.set_index("Filepath")
             labels_df = labels_df.set_index("Filepath")
             metadata_df.index = metadata_df.index.map(self._normalize_dataset_index)
