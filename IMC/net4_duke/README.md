@@ -43,6 +43,57 @@ For `combined` and `metadata`, the metadata branch can use either:
 
 ---
 
+## Relation to the paper
+
+This module implements the proposed method and its direct ablations from
+[arXiv:2602.23833](https://arxiv.org/abs/2602.23833). The table below maps each
+paper experiment to its command-line configuration. All experiments use the
+**Duke Liver MRI dataset** with 5-fold cross-validation and `SequenceType_Code_norm`
+as the primary target.
+
+| Paper exp. | Modality | Encoder | Imputer | Fusion | `--n_slices` | Duke F1 (%) |
+|---|---|---|---|---|---|---|
+| (4) Joint: Concat + zero imputation | combined | `imputer` | `ignore` | `concat` | 3 | 93.51 ± 1.89 |
+| (5) Joint: Concat + learned imputation | combined | `imputer` | `contextual` | `concat` | 3 | 93.21 ± 3.48 |
+| **Ours** (SME + BCA, proposed) | combined | `sparse` | — | `v1` | 10 | **96.66 ± 1.03** |
+
+### Exact commands for paper experiments
+
+**Experiment (4) — Joint with zero imputation:**
+```bash
+python -m IMC.net4_duke.train \
+    --modality combined \
+    --metadata_enc_type imputer \
+    --imputer_type ignore \
+    --fusion_module_version concat \
+    --n_slices 3 \
+    --gpu 0
+```
+
+**Experiment (5) — Joint with learned (MLP) imputation:**
+```bash
+python -m IMC.net4_duke.train \
+    --modality combined \
+    --metadata_enc_type imputer \
+    --imputer_type contextual \
+    --fusion_module_version concat \
+    --n_slices 3 \
+    --gpu 0
+```
+
+**Proposed method (Ours) — Sparse Metadata Encoder + Bi-directional Cross-modal Attention:**
+```bash
+python -m IMC.net4_duke.train \
+    --modality combined \
+    --metadata_enc_type sparse \
+    --sparse_enc_version v1 \
+    --fusion_module_version v1 \
+    --n_slices 10 \
+    --gpu 0
+```
+
+---
+
 ## Directory layout
 
 ```
@@ -132,8 +183,7 @@ python -m IMC.net4_duke.train \
 | `--metadata_enc_type` | `imputer` | `imputer` / `sparse` |
 | `--sparse_enc_version` | `v1` | `v1` / `v2` / `v5` |
 | `--fusion_module_version` | `v1` | `v1` / `v2` / `concat` |
-| `--n_slices` | `3` | MRI slices sampled per volume |
-| `--incl_regression` | off | Add regression head for ContrastPhase |
+| `--n_slices` | `3` | MRI slices sampled per volume (use `10` for the proposed method) |
 | `--dataset_path` | env default | Override `LOCAL_DATASET_PATH` |
 | `--label_csv_path` | env default | Override `LABEL_CSV_PATH` |
 | `--metadata_path` | env default | Override `METADATA_PATH` |
@@ -199,7 +249,6 @@ done
 | `--gpu` | `0` | CUDA device index |
 | `--batch_size` | `16` | Inference mini-batch size |
 | `--run_eval` | off | Evaluate against ground-truth labels |
-| `--incl_regression` | off | Must match training |
 | `--metadata_enc_type` | `imputer` | Must match training |
 | `--fusion_module_version` | `v1` | Must match training |
 | `--n_slices` | `3` | Must match training |
