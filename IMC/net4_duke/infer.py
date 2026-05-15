@@ -380,7 +380,7 @@ def load_model(
     Raises:
         FileNotFoundError: If the checkpoint at ``args.ckpt`` does not exist.
     """
-    from IMC.net4.helper import build_model
+    from IMC.net4_duke.helper import build_model
 
     model = build_model(
         modality=args.modality,

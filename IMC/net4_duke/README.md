@@ -4,9 +4,42 @@ This sub-package provides the complete training, inference, and cross-validation
 evaluation pipeline for Network v04 applied specifically to the
 **Duke Liver MRI Dataset**.
 
-Unlike the generic `net4` scripts (which target the PV.AI dataset), the scripts
-here use the Duke-specific `LiverDataset` dataloader and run **5-fold
+The scripts use the Duke-specific `LiverDataset` dataloader and run **5-fold
 cross-validation** (CV) as the standard training protocol.
+
+---
+
+## Architecture overview
+
+```
+Multiple MRI slices (B x N x H x W)
+	-> Shared CNN Backbone (for example DenseNet-121)
+		-> Slice embeddings
+			-> SliceFeatureFusion
+				-> Fused image representation
+
+DICOM metadata vector
+	-> Metadata encoder (imputer or sparse)
+		-> Metadata embedding
+
+Cross-modal fusion
+	-> image <-> metadata interaction
+		-> MultiTaskHead
+			-> per-task logits
+```
+
+The v04 family supports three experiment modes:
+
+| `--modality` | Description |
+|---|---|
+| `combined` | Image + metadata fusion with cross-modal interaction |
+| `image` | Image-only ablation |
+| `metadata` | Metadata-only ablation |
+
+For `combined` and `metadata`, the metadata branch can use either:
+
+- an imputer-based encoder via `--metadata_enc_type imputer`, or
+- a sparse encoder via `--metadata_enc_type sparse`.
 
 ---
 
@@ -14,10 +47,17 @@ cross-validation** (CV) as the standard training protocol.
 
 ```
 IMC/net4_duke/
+├── helper.py        – Shared build_model factory used by train and infer
 ├── train.py         – 5-fold CV training entry point
 ├── infer.py         – Inference entry point  
 ├── summarize_cv.py  – CV fold aggregation and report generation
 └── README.md        – This file
+```
+
+`build_model` is also re-exported at the package level for convenience:
+
+```python
+from IMC.net4_duke import build_model
 ```
 
 ---

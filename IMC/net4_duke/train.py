@@ -86,7 +86,7 @@ from IMC.helper import (
     log_training_end,
     log_training_start,
 )
-from IMC.net4.helper import build_model
+from IMC.net4_duke.helper import build_model
 from IMC.nn.multi_task_loss import MultiTaskLoss
 from IMC.tensorboard_logging import setup_combined_logging
 
