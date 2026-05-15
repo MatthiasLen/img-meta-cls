@@ -21,8 +21,8 @@ The paper studies DICOM series classification under three practical failure mode
 
 The codebase also includes Duke baselines used for comparison in the paper:
 
-- [`net4_duke`](IMC/net4_duke/README.md): Duke training, inference, and CV workflow for the multimodal cross-attention model,
-- [`net6`](IMC/net6/README.md): 2D image-only and two-stage CNN+RF baselines,
+- [`net4_duke`](IMC/net4_duke/README.md): Duke training, inference, and CV workflow for the multimodal cross-attention model and image-only ablation,
+- [`net6`](IMC/net6/README.md): two-stage CNN+RF baseline,
 - [`net7`](IMC/net7/README.md): 3D volumetric image-only baseline,
 - [`xgboost`](IMC/xgboost/README.md): metadata-only baseline.
 
@@ -32,7 +32,7 @@ Weighted F1 scores from Table 2 of the paper:
 
 | Exp. | Module | Modality | Method | Weighted F1 (%) |
 |---|---|---|---|---|
-| (1) | `net6` | Image | 2D CNN (DenseNet-121, single slice) | 85.09 ± 1.31 |
+| (1) | `net4_duke` | Image | 2D CNN (DenseNet-121, single slice, `--modality image`) | 85.09 ± 1.31 |
 | (2) | `net7` | Image | 3D CNN + Pyramid Pooling (ResNet-3D) | 88.33 ± 1.92 |
 | (3) | `xgboost` | Metadata | XGBoost on tabular DICOM features | 74.71 ± 2.34 |
 | (4) | `net4_duke` | Joint | 2.5D CNN + dense MLP encoder, zero imputation, concat fusion | 93.51 ± 1.89 |
@@ -186,13 +186,13 @@ Aggregate fold-level evaluation results:
 uv run python -m IMC.net4_duke.summarize_cv ./logs/<run>
 ```
 
-### Network 6: 2D image-only and two-stage CNN+RF baselines
+### Network 6: two-stage CNN+RF baseline
 
-**Paper experiments: (1) 2D image-only and (6) two-stage CNN+RF (Miller et al.).**
+**Paper experiment (6): two-stage CNN+RF (Miller et al.).**
 See the [Network 6 README](IMC/net6/README.md) for architecture details and
 per-experiment commands.
 
-Train the CNN (experiment 1):
+Train the CNN:
 
 ```bash
 uv run python -m IMC.net6.train_duke --gpu 0
@@ -204,10 +204,10 @@ Train the RF (required for experiment 6):
 uv run python -m IMC.net6.train_rf_duke --out_dir ./rf_checkpoints/duke_net6
 ```
 
-Inference — CNN only (exp 1) or with RF gate (exp 6):
+Inference — CNN only or with RF gate (exp 6):
 
 ```bash
-# CNN only
+# CNN only (no RF gate)
 uv run python -m IMC.net6.infer_duke \
   --ckpt ./logs/<run>/fold_0/best_model.pth \
   --output_dir ./infer_out/net6/fold_0
@@ -257,7 +257,7 @@ IMC/
   data/        Duke data loading, metadata encoding, image I/O
   nn/          reusable model components
   network04.py multimodal cross-attention architecture
-  network06.py 2D image-only baseline
+  network06.py 2D image-only baseline (CNN backbone for net6 two-stage RF)
   network07.py 3D volumetric baseline
   net4_duke/   Duke training, inference, and CV summarization for network 4
   net6/        Duke training and inference for network 6

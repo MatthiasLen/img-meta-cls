@@ -53,11 +53,22 @@ as the primary target.
 
 | Paper exp. | Modality | Encoder | Imputer | Fusion | `--n_slices` | Duke F1 (%) |
 |---|---|---|---|---|---|---|
+| (1) 2D Image-only | image | — | — | — | 1 | 85.09 ± 1.31 |
 | (4) Joint: Concat + zero imputation | combined | `imputer` | `ignore` | `concat` | 3 | 93.51 ± 1.89 |
 | (5) Joint: Concat + learned imputation | combined | `imputer` | `contextual` | `concat` | 3 | 93.21 ± 3.48 |
 | **Ours** (SME + BCA, proposed) | combined | `sparse` | — | `v1` | 10 | **96.66 ± 1.03** |
 
 ### Exact commands for paper experiments
+
+**Experiment (1) — 2D image-only (`SimpleImageBasedClassifier`):**
+```bash
+python -m IMC.net4_duke.train \
+    --modality image \
+    --vanilla_image_classifier \
+    --img_enc_backbone densenet121 \
+    --n_slices 1 \
+    --gpu 0
+```
 
 **Experiment (4) — Joint with zero imputation:**
 ```bash

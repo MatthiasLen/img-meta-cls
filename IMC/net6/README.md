@@ -1,8 +1,8 @@
-# IMC Net6 – 2D CNN Baseline and Two-Stage CNN + RF Baseline
+# IMC Net6 – Two-Stage CNN + RF Baseline
 
 ## Overview
 
-`net6` implements two related baselines for Duke Liver MRI series
+`net6` implements the two-stage CNN + RF baseline for Duke Liver MRI series
 classification:
 
 1. **CNN image classifier** (`train_duke.py` / `infer_duke.py`): a 2D,
@@ -16,16 +16,20 @@ Both components target `SequenceType_Code_norm` only.  Focal loss (α = 1.0,
 γ = 2.0) is used when training the CNN to handle the class-imbalanced
 distribution.
 
+> **Note:** Experiment (1) — the 2D image-only baseline — is implemented via
+> `net4_duke` using `SimpleImageBasedClassifier` from `network04.py` with
+> `--modality image`.  The CNN trained here in `net6` is used as the pixel
+> classifier component of the two-stage system (experiment 6) only.
+
 ---
 
 ## Relation to the paper
 
-These scripts implement baselines (1) and (6) from
+These scripts implement baseline (6) from
 [arXiv:2602.23833](https://arxiv.org/abs/2602.23833):
 
 | Paper exp. | Description | Scripts | Duke weighted F1 (%) |
-|---|---|---|---|
-| (1) 2D Image-only | CNN on a single 2D slice, no metadata | `train_duke.py` → `infer_duke.py` (no `--rf_model`) | 85.09 ± 1.31 |
+|---|---|---|
 | (6) Two-stage [Miller et al.] | RF gates CNN predictions by metadata confidence | `train_duke.py` + `train_rf_duke.py` → `infer_duke.py --rf_model` | 87.01 ± 0.97 |
 
 Experiment (6) re-implements the two-stage approach from:
@@ -87,7 +91,7 @@ This confidence-based gating follows the approach of Miller et al. [8].
 
 ## Quick-start
 
-### Experiment (1): 2D image-only baseline
+### Experiment (6): Two-stage CNN + RF baseline
 
 **Step 1 – Train the CNN (5-fold CV)**
 
@@ -98,7 +102,7 @@ python -m IMC.net6.train_duke \
     --num_epochs 25
 ```
 
-**Step 2 – Run inference (CNN only)**
+**Step 2 – Run inference (CNN only, no RF gate)**
 
 ```bash
 for fold in 0 1 2 3 4; do
@@ -111,11 +115,7 @@ for fold in 0 1 2 3 4; do
 done
 ```
 
-### Experiment (6): Two-stage CNN + RF baseline
-
-**Step 1 – Train the CNN** (same as experiment 1 above)
-
-**Step 2 – Train the Random Forest**
+**Step 3 – Train the Random Forest**
 
 ```bash
 python -m IMC.net6.train_rf_duke \
