@@ -14,21 +14,14 @@ class MultiTaskHead(nn.Module):
 
     The supported tasks are defined by the `num_classes_dict`, which maps task names
     to the number of classes for that task.
-
-    The module can handle both classification and regression tasks. By setting
-    `incl_regression` to True, the head for the task named "label_ContrastPhase"
-    is configured as a regression head with a single output neuron.
     """
 
-    def __init__(self, input_dim: int, num_classes_dict: dict, dropout: float = 0.1, incl_regression: bool = True):
+    def __init__(self, input_dim: int, num_classes_dict: dict, dropout: float = 0.1):
         super().__init__()
 
         self.tasks_heads = nn.ModuleDict()
         for task_name, n_classes in num_classes_dict.items():
-            if incl_regression and task_name == "label_ContrastPhase":  # regression task
-                self.tasks_heads[task_name] = self.make_task_head(input_dim, 1, dropout)
-            else:
-                self.tasks_heads[task_name] = self.make_task_head(input_dim, n_classes, dropout)
+            self.tasks_heads[task_name] = self.make_task_head(input_dim, n_classes, dropout)
 
     def make_task_head(self, in_dim: int, out_dim: int, dropout: float) -> nn.Sequential:
         """

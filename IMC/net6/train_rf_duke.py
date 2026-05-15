@@ -194,7 +194,6 @@ def main(args: argparse.Namespace) -> None:
         sampling_type="equidistant",
         augment_conf="NONE2D",
         aggregated_metadata=False,
-        exclude_contrast_yn=False,
         label_names=DUKE_ORIGINAL_LABEL_NAMES,
     )
 

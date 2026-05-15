@@ -337,7 +337,6 @@ def main(args: argparse.Namespace) -> None:
                 sampling_type="equidistant",
                 augment_conf="IMAGENET299_CENTER",
                 aggregated_metadata=False,
-                exclude_contrast_yn=True,
                 label_names=DUKE_ORIGINAL_LABEL_NAMES,
             )
             from IMC.data.duke_dataloader_local import LiverDataset

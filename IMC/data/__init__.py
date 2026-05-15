@@ -8,6 +8,7 @@ __all__ = [
     "dicom_tag_encoding_v2",
     "duke_dataloader_3d",
     "duke_dataloader_local",
+    "encode_metadata",
     "image_reader",
 ]
 

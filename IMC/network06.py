@@ -24,8 +24,8 @@ Architecture overview
     list[(B, n_classes_i), …]       ← logits per task
 
 For optional RF-gated inference (SequenceType_Code_norm), see
-``net6/infer.py`` which combines these image logits with a Random Forest
-trained on tabular metadata (``net6/train_rf.py``).
+``net6/infer_duke.py`` which combines these image logits with a Random Forest
+trained on tabular metadata (``net6/train_rf_duke.py``).
 
 Version: 0.6
 """
@@ -81,7 +81,7 @@ class PixelOnlyModel(nn.Module):
         self.num_classes_dict = num_classes_dict
         self.image_encoder = MultiSliceImageEncoder(backbone=image_backbone)
         image_feat_dim = self.image_encoder.get_feature_dimension()
-        self.image_head = MultiTaskHead(image_feat_dim, num_classes_dict, dropout=dropout, incl_regression=False)
+        self.image_head = MultiTaskHead(image_feat_dim, num_classes_dict, dropout=dropout)
         self.softmax = nn.Softmax(dim=-1)
 
     def get_image_logits(self, image_slices: torch.Tensor):

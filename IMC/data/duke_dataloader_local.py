@@ -14,8 +14,8 @@ The dataset supports:
 - Train, validation, test, and inference modes with appropriate data splits.
 - Graceful handling of missing data, corrupted files, and inconsistent metadata.
 
-This dataloader is optimized for local development and can be swapped with
-`liver_dataloader_gcp.py` for cloud-based training on Google Cloud Storage.
+This dataloader is optimized for local development and training on the Duke
+Liver MRI dataset.
 
 Authors: Melanie Dohmen, Matthias Lenga, Tuan Truong
 Date: 2026
@@ -95,9 +95,6 @@ class LiverDataset(Dataset):
         metadata_path: Path to the metadata CSV or Parquet file.
         label_csv_path: Path to the labels CSV file.
         aggregated_metadata: If True, uses aggregated metadata per series.
-        exclude_contrast_yn: If True, excludes the ``label_Contrast`` task from the label
-            configuration.  This is the appropriate setting for the net6 and net4 Duke
-            experiments.
         sampling_type: Slice sampling strategy – ``"equidistant"`` (default) or
             ``"random"``.  Passed to :meth:`open_dicom_slice_from_series`.
 
@@ -133,7 +130,6 @@ class LiverDataset(Dataset):
         metadata_path: Optional[str] = None,
         label_csv_path: Optional[str] = None,
         aggregated_metadata: bool = False,
-        exclude_contrast_yn: bool = False,
         sampling_type: str = "equidistant",
     ) -> None:
         """Initialize the LiverDataset with specified configuration.
@@ -150,7 +146,6 @@ class LiverDataset(Dataset):
             metadata_path: Path to the metadata CSV or Parquet file.
             label_csv_path: Path to the labels CSV file.
             aggregated_metadata: If True, uses aggregated metadata per series.
-            exclude_contrast_yn: If True, excludes 'label_Contrast' from classification labels.
             sampling_type: Slice sampling strategy – ``"equidistant"`` (default)
                 or ``"random"``.
         """
@@ -159,8 +154,6 @@ class LiverDataset(Dataset):
         self.n_slices = n_slices
         self.img_size = img_size
         self.label_names = label_names.copy() if label_names is not None else DUKE_ORIGINAL_LABEL_NAMES.copy()
-        if exclude_contrast_yn:
-            self.label_names.pop("label_Contrast", None)
         self.augment_conf = augment_conf
         self.is_infer = is_infer
         # Initialize data containers
@@ -278,7 +271,7 @@ class LiverDataset(Dataset):
 
         Example:
             >>> dataset.get_n_labels()
-            {'label_SequenceType': 11, 'label_FatSat': 3, ...}
+            {'SequenceType_Code_norm': 13}
         """
         return {label_name: len(classes) for label_name, classes in self.label_names.items()}
 

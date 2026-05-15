@@ -115,7 +115,6 @@ def _make_duke_infer_args(**overrides) -> argparse.Namespace:
         imputer_type="contextual",
         metadata_embed_dim=128,
         output_emb_dim=256,
-        incl_regression=False,
         folds=None,
         dataset_path=None,
         metadata_path=None,
@@ -687,7 +686,6 @@ class TestDukeInferParseArgs:
         assert args.batch_size == 16
         assert args.gpu == 0
         assert args.run_eval is False
-        assert args.incl_regression is False
         assert args.folds is None
         assert args.n_slices == 3
 
@@ -789,7 +787,7 @@ class TestDukeRunInference:
     """Unit tests for :func:`~IMC.net4_duke.infer.run_inference`.
 
     The Duke run_inference signature is:
-    ``run_inference(model, dataloader, device, incl_regression=False)``
+    ``run_inference(model, dataloader, device)``
 
     Key differences from net4/infer:
     - No ``num_classes_dict`` parameter (read from ``dataloader.dataset``).
@@ -1190,7 +1188,6 @@ def _make_main_duke_infer_args(**overrides) -> argparse.Namespace:
         imputer_type="contextual",
         metadata_embed_dim=128,
         output_emb_dim=256,
-        incl_regression=False,
         folds=None,
         dataset_path=None,
         metadata_path=None,

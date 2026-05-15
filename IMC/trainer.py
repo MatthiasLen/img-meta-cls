@@ -78,7 +78,7 @@ class Trainer:
         self.tb_logger = tb_logger
         self.logger = logger
         self.patience = patience
-        self.task_weights = task_weights if task_weights is not None else [1.0] * 7
+        self.task_weights = task_weights if task_weights is not None else [1.0] * len(task_names)
         self.use_mixed_precision = use_mixed_precision
         # Directory for torch.profiler TensorBoard traces (None = disabled)
         self.profiler_dir = profiler_dir

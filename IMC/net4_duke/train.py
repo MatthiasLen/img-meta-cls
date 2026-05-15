@@ -451,7 +451,6 @@ def main() -> None:
                 num_samples=args.num_samples,
                 augment_conf="NONE2D",
                 aggregated_metadata=False,
-                exclude_contrast_yn=False,
                 label_names=DUKE_ORIGINAL_LABEL_NAMES,
                 n_slices=args.n_slices,
             )
@@ -536,7 +535,6 @@ def main() -> None:
             scheduler = get_scheduler(optimizer, warmup_steps, total_steps)
             criterion = MultiTaskLoss(
                 label_smoothing=0.1,
-                incl_regression=False,
                 task_names=list(DUKE_ORIGINAL_LABEL_NAMES.keys()),
             )
             scaler = torch.cuda.amp.GradScaler(init_scale=2**8)

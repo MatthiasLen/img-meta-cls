@@ -41,10 +41,8 @@ B)                          DICOM Metadata Vector
 
 C) Bi-Directional Cross-Modal Attention Fusion ---> Multi-task Output Heads
                                                            |
-            _______________________________________________|_____________
-            |                  |                     |                   |
-        Sequence Classifier   Plane Classifier   Body Region Classifier   Contrast Classifier
-        (Softmax)            (Softmax)            (Softmax)               (Sigmoid)
+                                                   SequenceType Classifier
+                                                       (Softmax)
 
 """
 
@@ -489,7 +487,6 @@ class MRISequenceClassifier(nn.Module):
         output_emb_dim: Dimension of fused image+metadata embedding.
         imputer_type: Strategy for metadata imputation.
         img_enc_backbone: Image encoder backbone name (e.g., 'swin', 'densenet').
-        incl_regression: Whether to include regression task in the head.
         dropout_metadata: Enable random metadata masking during training.
         fusion_module_version: 'v1' or 'v2' fusion module selection.
     """
@@ -505,7 +502,6 @@ class MRISequenceClassifier(nn.Module):
         imputer_type: str = "contextual",  # if metadata_encoder_type is "imputer", which type to use ("contextual" or "ignore")
         sparse_enc_version: str = "v1",  # if metadata_encoder_type is "sparse", which version to use ("v1", "v2", or "v5")
         img_enc_backbone: str | None = "densenet121",  # "densenet" or "swin", None for resnet50 as default
-        incl_regression: bool = True,
         dropout_metadata: bool = False,
         fusion_module_version: str = "v1",  # v1 or v2 or concat or v3
         scalar_modulation: bool = False,
@@ -594,7 +590,7 @@ class MRISequenceClassifier(nn.Module):
                 output_dim=output_emb_dim,
             )
         # Initialize primary multi-task head
-        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict, incl_regression=incl_regression)
+        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict)
         # Optional: metadata dropout during training
         self.dropout_metadata = dropout_metadata
         self._task_names = list(num_classes_dict.keys())
@@ -723,7 +719,6 @@ class ImageBasedClassifier(nn.Module):
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
         img_enc_backbone: str | None = "swin",  # "densenet" or "swin", None for resnet50 as default
-        incl_regression: bool = False,
         n_channels: int = 1,  # 1 = single-window grayscale; 3 = multi-window (e.g. soft_tissue/angio/bone)
     ):
         super().__init__()
@@ -739,7 +734,7 @@ class ImageBasedClassifier(nn.Module):
             nn.GELU(),
         )
 
-        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict, incl_regression=incl_regression)
+        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict)
 
     def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
         """
@@ -764,13 +759,12 @@ class SimpleImageBasedClassifier(nn.Module):
     def __init__(
         self,
         num_classes_dict: dict,
-        incl_regression: bool = False,
     ):
         super().__init__()
         self.image_encoder = models.densenet121(weights=DenseNet121_Weights.DEFAULT)
         feature_dim = self.image_encoder.classifier.in_features
         self.image_encoder.classifier = nn.Identity()  # Remove the original classifier
-        self.multi_task_head = MultiTaskHead(feature_dim, num_classes_dict, incl_regression=incl_regression)
+        self.multi_task_head = MultiTaskHead(feature_dim, num_classes_dict)
 
     def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
         """
@@ -806,7 +800,6 @@ class MetadataBasedClassifier(nn.Module):
         metadata_encoder_type: str = "imputer",  # "imputer" or "sparse"
         imputer_type: str = "contextual",  # "contextual" or "ignore" (only relevant if metadata_encoder_type is "imputer"),
         sparse_enc_version: str = "v1",  # if metadata_encoder_type is "sparse", which version to use ("v1", "v2", or "v5")
-        incl_regression: bool = False,
     ):
         super().__init__()
         logger.info(f"Initializing MetadataBasedClassifier with metadata_encoder_type={metadata_encoder_type}")
@@ -844,7 +837,7 @@ class MetadataBasedClassifier(nn.Module):
             nn.GELU(),
         )
 
-        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict, incl_regression=incl_regression)
+        self.multi_task_head = MultiTaskHead(output_emb_dim, num_classes_dict)
 
     def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
         """
@@ -883,7 +876,6 @@ if __name__ == "__main__":
         metadata_input_dim=metadata_dim,  # assuming 1 emb per slice
         num_classes_dict=num_classes_tasks,
         img_enc_backbone="densenet121",
-        incl_regression=True,
         # slice_feat_dim=512,  # internal dimension of slice feature space
         # fused_feat_dim=256,  # internal dimension of fused slice feature space
         # metadata_embed_dim=128,  # internal dimension of meta data feature space
