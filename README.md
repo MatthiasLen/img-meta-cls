@@ -116,8 +116,10 @@ DICOM files:
 ```bash
 # Slicewise parquet (one row per DICOM file) – used by net4, net6
 uv run python -m IMC.data.encode_metadata \
-    --dicom_root "$LOCAL_DATASET_PATH" \
-    --output encoded_metadata.parquet \
+    --label_file "$LABEL_CSV_PATH" \
+    --data_folder "$LOCAL_DATASET_PATH" \
+    --output_folder /path/to/output/ \
+    --output_name encoded_metadata.parquet \
     --mode slicewise
 ```
 
@@ -126,11 +128,13 @@ For the XGBoost baseline, a series-level parquet is required instead:
 ```bash
 # Series-level parquet (one row per series folder) – used by xgboost
 uv run python -m IMC.data.encode_metadata \
-    --dicom_root "$LOCAL_DATASET_PATH" \
-    --output encoded_metadata_series.parquet \
+    --label_file "$LABEL_CSV_PATH" \
+    --data_folder "$LOCAL_DATASET_PATH" \
+    --output_folder /path/to/output/ \
+    --output_name encoded_metadata_series.parquet \
     --mode series
 
-export XGBOOST_METADATA_PATH=/path/to/encoded_metadata_series.parquet
+export METADATA_PATH=/path/to/output/encoded_metadata_series.parquet
 ```
 
 See [`IMC/data/README.md`](IMC/data/README.md) for full encoding documentation.
