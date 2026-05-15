@@ -12,36 +12,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import json
 from pathlib import Path
-
-LABEL_NAME_MAPS = {
-    "Arterial T1w": ["C", "O", "Q"],
-    "Portven T1w": ["K"],
-    "Late T1w": ["E", "N", "P"],
-    "AX T2w": ["A"],
-    "COR T2w": ["J"],
-    "AX FatSat T1w": ["B"],
-    "AX Dixon In": ["G"],
-    "AX Dixon Opp": ["H"],
-    "AX DWI": ["I"],
-    "AX ADC": ["M"],
-    "Localizer": ["L"],
-    "MRCP": ["D"],
-    "Other": ["F"],
-}
-
-# Create reverse mapping: letter code -> label name
-LETTER_TO_LABEL_NAME = {}
-for label_name, letter_codes in LABEL_NAME_MAPS.items():
-    for letter in letter_codes:
-        LETTER_TO_LABEL_NAME[letter] = label_name
-
-# Create sort order mapping: letter code -> order index
-LETTER_SORT_ORDER = {}
-order_idx = 0
-for label_name, letter_codes in LABEL_NAME_MAPS.items():
-    for letter in letter_codes:
-        LETTER_SORT_ORDER[letter] = order_idx
-        order_idx += 1
+from IMC.data.constants import LETTER_TO_LABEL_NAME, LETTER_SORT_ORDER
 
 
 def get_label_display_name(letter_code):

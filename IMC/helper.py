@@ -1,10 +1,15 @@
 import matplotlib.pyplot as plt
+import math
 import os
 import logging
 import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from contextlib import contextmanager
+
+import torch.nn as nn
+from torch.optim import AdamW, Optimizer
+from torch.optim.lr_scheduler import LambdaLR
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -416,3 +421,110 @@ def log_training_end(logger, final_metrics=None):
             logger.info(f"  {metric}: {value}")
 
     logger.info("=" * 80)
+
+
+# ---------------------------------------------------------------------------
+# Training utilities (shared across network training scripts)
+# ---------------------------------------------------------------------------
+
+
+def init_weights(module: nn.Module) -> None:
+    """Initialise weights for selected module types.
+
+    - ``nn.Linear``    – Xavier uniform for weights; zeros for bias.
+    - ``nn.LayerNorm`` – ones for weight; zeros for bias.
+
+    Intended to be passed to ``model.apply(init_weights)`` after model
+    construction so that only the non-pretrained layers are re-initialised.
+    """
+    if isinstance(module, nn.Linear):
+        nn.init.xavier_uniform_(module.weight)
+        if module.bias is not None:
+            nn.init.zeros_(module.bias)
+    elif isinstance(module, nn.LayerNorm):
+        nn.init.ones_(module.weight)
+        nn.init.zeros_(module.bias)
+
+
+def create_optimizer(
+    model: nn.Module,
+    lr: float = 1.0e-6,
+    weight_decay: float = 1e-2,
+    eps: float = 1e-8,
+) -> Optimizer:
+    """Build an AdamW optimiser with per-parameter-group weight decay.
+
+    Biases and normalisation layer parameters are placed in a separate group
+    with ``weight_decay=0.0`` to avoid over-regularising scale/shift params.
+
+    Args:
+        model: Model whose parameters will be optimised.
+        lr: Base learning rate.
+        weight_decay: Weight decay for non-normalisation parameters.
+        eps: Epsilon for numerical stability in AdamW.
+
+    Returns:
+        Configured :class:`~torch.optim.AdamW` optimiser.
+    """
+    decay: list[nn.Parameter] = []
+    no_decay: list[nn.Parameter] = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if any(nd in name.lower() for nd in ["bias", "norm", "ln", "layernorm", "bn"]):
+            no_decay.append(param)
+        else:
+            decay.append(param)
+
+    return AdamW(
+        [
+            {"params": decay, "weight_decay": weight_decay},
+            {"params": no_decay, "weight_decay": 0.0},
+        ],
+        lr=lr,
+        eps=eps,
+    )
+
+
+def get_scheduler(
+    optimizer: Optimizer,
+    warmup_steps: int,
+    total_steps: int,
+    peak_scale_factor: float = 100.0,
+    min_scale_factor: float = 0.1,
+) -> LambdaLR:
+    """Construct a linear-warmup + cosine-decay LR scheduler.
+
+    The multiplier applied to the base LR is:
+
+    1. **Linear warmup** – ramps from ``1.0`` to ``peak_scale_factor`` over
+       ``warmup_steps`` gradient steps.
+    2. **Cosine decay** – decays from ``peak_scale_factor`` to
+       ``min_scale_factor`` between step ``warmup_steps`` and ``total_steps``.
+    3. **Floor** – remains at ``min_scale_factor`` beyond ``total_steps``.
+
+    Args:
+        optimizer: Optimiser whose LR will be scaled.
+        warmup_steps: Number of warm-up gradient steps.
+        total_steps: Total steps at which cosine decay completes.
+        peak_scale_factor: Maximum LR multiplier at the end of warm-up.
+        min_scale_factor: Minimum LR multiplier after cosine decay.
+
+    Returns:
+        :class:`~torch.optim.lr_scheduler.LambdaLR` scheduler instance.
+    """
+
+    def lr_lambda(current_step: int) -> float:
+        if current_step <= warmup_steps and warmup_steps > 0:
+            return max(1.0, peak_scale_factor * float(current_step) / warmup_steps)
+        elif warmup_steps < current_step <= total_steps:
+            progress = float(current_step - warmup_steps) / max(1, total_steps - warmup_steps)
+            return max(
+                min_scale_factor,
+                peak_scale_factor * 0.5 * (1.0 + math.cos(math.pi * progress)),
+            )
+        else:
+            return min_scale_factor
+
+    return LambdaLR(optimizer, lr_lambda)

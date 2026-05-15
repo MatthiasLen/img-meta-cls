@@ -282,7 +282,6 @@ def create_inference_dataloader(
     fold_indices: Optional[List[int]],
     batch_size: int = 16,
     num_workers: int = 4,
-    use_preselected_features: bool = False,
     exclude_contrast_yn: bool = True,
     n_slices: int = 3,
 ) -> DataLoader:
@@ -298,8 +297,6 @@ def create_inference_dataloader(
                                   entire dataset without fold filtering.
         batch_size:               Mini-batch size.
         num_workers:              Number of DataLoader worker processes.
-        use_preselected_features: Restrict metadata to the pre-selected feature
-                                  subset (must match training).
         exclude_contrast_yn:      Exclude the binary ``label_Contrast`` task
                                   from the dataset label configuration.
         n_slices:                 Number of slices to sample from each MRI volume.
@@ -317,7 +314,6 @@ def create_inference_dataloader(
         num_samples=None,
         augment_conf="NONE2D",
         aggregated_metadata=False,
-        use_preselected_features=use_preselected_features,
         exclude_contrast_yn=exclude_contrast_yn,
         is_infer=True,
         label_names=DUKE_ORIGINAL_LABEL_NAMES,
@@ -533,7 +529,6 @@ def main() -> None:
         fold_indices=fold_indices,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
-        use_preselected_features=False,
         exclude_contrast_yn=True,
         n_slices=args.n_slices,
     )

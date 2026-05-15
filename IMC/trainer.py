@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-from sklearn import logger
 import torch
 import torch.profiler
 from typing import Optional, Union
@@ -320,7 +319,7 @@ class Trainer:
 
                 # Log gradient norms periodically
                 if batch_id % 50 == 0:
-                    logger.info(f"Max gradient norm: {max_grad_norm:.4f}")
+                    self.logger.info(f"Max gradient norm: {max_grad_norm:.4f}")
 
             if self.use_mixed_precision:
                 self.scaler.unscale_(self.optimizer)
