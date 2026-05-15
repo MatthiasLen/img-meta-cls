@@ -20,7 +20,6 @@ Date: 2026
 
 import logging
 import os
-import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -31,7 +30,6 @@ import SimpleITK as sitk
 from natsort import natsorted
 from pydicom import dcmread
 from torch.utils.data import Dataset
-from scipy.ndimage import zoom
 
 from IMC.data.augment import augment3d
 from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES

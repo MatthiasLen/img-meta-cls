@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import json
 from pathlib import Path
-from collections import defaultdict
 
 LABEL_NAME_MAPS = {
     "Arterial T1w": ["C", "O", "Q"],
@@ -768,16 +767,16 @@ Example usage:
     overall_f1 = cv_stats_df['Macro_F1_mean'].mean()
     overall_f1_std = cv_stats_df['Macro_F1_std'].mean()
     
-    print(f"\n📊 Overall Performance:")
+    print("\n📊 Overall Performance:")
     print(f"  • Average Accuracy: {overall_acc:.4f} (avg std: {overall_acc_std:.4f})")
     print(f"  • Average Macro F1: {overall_f1:.4f} (avg std: {overall_f1_std:.4f})")
     
-    print(f"\n🏆 Best Performing Task (by Accuracy):")
+    print("\n🏆 Best Performing Task (by Accuracy):")
     best_task = cv_stats_df.loc[cv_stats_df['Accuracy_mean'].idxmax()]
     print(f"  • {best_task['Task'].replace('label_', '')}: "
           f"{best_task['Accuracy_mean']:.4f} ± {best_task['Accuracy_std']:.4f}")
     
-    print(f"\n⚠️  Worst Performing Task (by Accuracy):")
+    print("\n⚠️  Worst Performing Task (by Accuracy):")
     worst_task = cv_stats_df.loc[cv_stats_df['Accuracy_mean'].idxmin()]
     print(f"  • {worst_task['Task'].replace('label_', '')}: "
           f"{worst_task['Accuracy_mean']:.4f} ± {worst_task['Accuracy_std']:.4f}")

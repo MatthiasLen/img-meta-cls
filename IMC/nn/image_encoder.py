@@ -3,7 +3,7 @@ import os
 import torch
 import torch.nn as nn
 from torchvision import models
-from torchvision.models.resnet import ResNet18_Weights, ResNet50_Weights
+from torchvision.models.resnet import ResNet50_Weights
 from torchvision.models.densenet import DenseNet121_Weights, DenseNet161_Weights, DenseNet169_Weights, DenseNet201_Weights
 from torchvision.models.efficientnet import EfficientNet_V2_L_Weights, EfficientNet_V2_M_Weights, EfficientNet_V2_S_Weights
 import torch.nn.init as init

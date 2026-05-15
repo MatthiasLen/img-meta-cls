@@ -57,7 +57,6 @@ import os
 import time
 from typing import List
 
-import pandas as pd
 import torch
 import torch.nn as nn
 from torch.optim import AdamW, Optimizer
@@ -438,7 +437,7 @@ def main(args: argparse.Namespace) -> None:
 
     log_training_start(logger, config=config)
 
-    print(f"Dataset environment configured:")
+    print("Dataset environment configured:")
     print(f"  DEBUG_MODE = {os.environ['DEBUG_MODE']}")
     print(f"  LOCAL_DATASET_PATH = {os.environ['LOCAL_DATASET_PATH']}")
     print(f"  LABEL_CSV_PATH = {os.environ['LABEL_CSV_PATH']}")
