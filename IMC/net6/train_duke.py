@@ -394,7 +394,6 @@ def main(args: argparse.Namespace) -> None:
                 logger=logger,
                 patience=args.patience,
                 task_weights=[1.0],
-                incl_regression=False,
                 use_mixed_precision=True,
             )
 

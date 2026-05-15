@@ -160,11 +160,6 @@ def parse_args() -> argparse.Namespace:
         help="Root directory for logs and checkpoints.",
     )
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG_MODE.")
-    parser.add_argument(
-        "--incl_regression",
-        action="store_true",
-        help="Include a regression head for the ContrastPhase task.",
-    )
 
     # --------------------------------------------------- fold selection
     parser.add_argument(
@@ -432,7 +427,6 @@ def main() -> None:
             "learning_rate": args.lr,
             "modality": args.modality,
             "img_enc_backbone": args.img_enc_backbone,
-            "incl_regression": args.incl_regression,
             "metadata_enc_type": args.metadata_enc_type,
             "imputer_type": args.imputer_type,
             "sparse_enc_version": args.sparse_enc_version,
@@ -562,7 +556,6 @@ def main() -> None:
                 tb_logger=tb_logger,
                 logger=logger,
                 patience=args.patience,
-                incl_regression=args.incl_regression,
                 use_mixed_precision=True,
             )
 

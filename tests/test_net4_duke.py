@@ -80,7 +80,6 @@ def _make_duke_train_args(**overrides) -> argparse.Namespace:
         patience=30,
         log_dir=None,
         debug=False,
-        incl_regression=False,
         folds=None,
         n_folds=5,
         dataset_path=None,
@@ -337,7 +336,6 @@ class TestDukeTrainParseArgs:
         assert args.n_folds == 5
         assert args.folds is None
         assert args.n_slices == 3
-        assert args.incl_regression is False
         assert args.debug is False
         assert args.vanilla_image_classifier is False
         assert args.metadata_embed_dim == 128
@@ -947,7 +945,6 @@ def _make_main_duke_train_args(**overrides) -> argparse.Namespace:
         patience=30,
         log_dir=None,
         debug=False,
-        incl_regression=False,
         folds=None,
         n_folds=2,  # small n_folds to keep test fast
         dataset_path=None,
