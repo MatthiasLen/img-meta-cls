@@ -4,68 +4,71 @@ import logging
 
 logger = logging.getLogger("IMC")
 
+
 class ResidualMLP(nn.Module):
     """
     Residual Multi-Layer Perceptron (MLP) with Layer Normalization.
-    
+
     Implements a residual connection around a two-layer MLP with GELU activation.
     The residual connection helps with gradient flow and enables deeper networks.
-    
+
     Architecture:
         Input -> Linear -> GELU -> Linear -> Add residual -> LayerNorm -> Output
-    
+
     Args:
         dim (int): Input and output dimension.
         hidden (int): Hidden layer dimension.
     """
+
     def __init__(self, dim, hidden):
         super().__init__()
         self.lin1 = nn.Linear(dim, hidden)
         self.lin2 = nn.Linear(hidden, dim)
         self.norm = nn.LayerNorm(dim)
-        
+
     def forward(self, x):
         """
         Forward pass with residual connection.
-        
+
         Args:
             x (torch.Tensor): Input tensor of shape (..., dim).
-            
+
         Returns:
             torch.Tensor: Output tensor of shape (..., dim) after residual connection and normalization.
         """
-        h =  torch.nn.functional.gelu(self.lin1(x))
+        h = torch.nn.functional.gelu(self.lin1(x))
         h = self.lin2(h)
         return self.norm(x + h)
 
 
 class ValueNetwork(nn.Module):
     """
-        Value MLP: Maps scalar feature value contextualized by feature embedding to FiLM parameters
-        Input: [value (1D), feature_embedding (index_embed_dim)]
-        Output: [alpha, beta]
+    Value MLP: Maps scalar feature value contextualized by feature embedding to FiLM parameters
+    Input: [value (1D), feature_embedding (index_embed_dim)]
+    Output: [alpha, beta]
     """
-    def __init__(self, index_embed_dim : int, value_mlp_dim : int, scalar_modulation: bool = False):
+
+    def __init__(self, index_embed_dim: int, value_mlp_dim: int, scalar_modulation: bool = False):
         super().__init__()
         value_mlp_out_dim = 2 if scalar_modulation else (2 * index_embed_dim)
         print("Value Network output dim:", value_mlp_out_dim)
-        
+
         self.lin1 = nn.Linear(1 + index_embed_dim, value_mlp_dim)
-        self.lin2 = nn.Linear(value_mlp_dim, value_mlp_out_dim) 
-        
+        self.lin2 = nn.Linear(value_mlp_dim, value_mlp_out_dim)
+
     def forward(self, x):
         h = torch.nn.functional.gelu(self.lin1(x))
         h = self.lin2(h)
         return h
-        
+
 
 class SparseMetadataEncoder(nn.Module):
     """
     Sparse Metadata Encoder with Feature-wise Linear Modulation (FiLM).
-    
+
     This encoder is designed to handle variable-length metadata with missing entries (represented as NaN).
     It uses a FiLM-based architecture to combine learned feature embeddings with their numeric values.
-    
+
     Key Features:
     - **Sparse Input Handling**: NaN values indicate missing features and are excluded from processing.
       Zero values are treated as valid observations.
@@ -76,7 +79,7 @@ class SparseMetadataEncoder(nn.Module):
     - **Flexible Aggregation**: Observed features are aggregated using sum or mean pooling.
     - **Optional Learnable Normalization**: Per-feature affine normalization can be applied to
       standardize input values based on training data statistics.
-    
+
     Architecture Overview:
         1. Extract non-NaN features and their indices
         2. (Optional) Apply learnable per-feature normalization
@@ -85,7 +88,7 @@ class SparseMetadataEncoder(nn.Module):
         5. Apply FiLM modulation: embedding * (1 + alpha) + beta
         6. Aggregate modulated features per sample (sum or mean)
         7. Apply post-processing MLP with residual connections
-    
+
     This approach is particularly effective for medical metadata where:
     - Features may be missing (NaN) due to variations in acquisition protocols
     - Different features have different semantic meanings (captured by embeddings)
@@ -100,14 +103,14 @@ class SparseMetadataEncoder(nn.Module):
         out_dim: int = 128,
         aggregation: str = "mean",
         learnable_norm: bool = False,
-        p_post_dropout : float = 0.05,
+        p_post_dropout: float = 0.05,
         reduce: bool = True,
-        scalar_modulation : bool = False,
-        learn_missing_emb: bool = False
+        scalar_modulation: bool = False,
+        learn_missing_emb: bool = False,
     ):
         """
         Initialize the Sparse Metadata Encoder.
-        
+
         Args:
             num_features (int): Total number of features in the metadata vector. This defines
                 the vocabulary size for feature embeddings.
@@ -132,7 +135,7 @@ class SparseMetadataEncoder(nn.Module):
 
         self.out_dim = out_dim
         self.scalar_modulation = scalar_modulation
-        
+
         # Learnable embedding for each feature index
         self.index_emb = nn.Embedding(num_features, index_embed_dim)
 
@@ -149,23 +152,20 @@ class SparseMetadataEncoder(nn.Module):
             # post(zeros); this is stable as long as the model was trained that way.
             self.register_buffer("missing_emb", torch.zeros(index_embed_dim), persistent=False)
         self.learn_missing_emb = learn_missing_emb
-        
+
         # Value MLP: Maps scalar feature value contextualized by feature embedding to FiLM parameters
         # Input: [value (1D), feature_embedding (index_embed_dim)] -> Output: [alpha, beta]
-        
 
         if not scalar_modulation:
-            value_mlp_out_dim = index_embed_dim * 2 
+            value_mlp_out_dim = index_embed_dim * 2
             self.value_mlp = nn.Sequential(
-            nn.Linear(1 + index_embed_dim, value_mlp_dim),
-            nn.GELU(),
-            nn.Linear(value_mlp_dim, value_mlp_out_dim) # FiLM params: alpha and beta
+                nn.Linear(1 + index_embed_dim, value_mlp_dim),
+                nn.GELU(),
+                nn.Linear(value_mlp_dim, value_mlp_out_dim),  # FiLM params: alpha and beta
             )
         else:
             self.value_mlp = ValueNetwork(
-                index_embed_dim = index_embed_dim,
-                value_mlp_dim = value_mlp_dim, 
-                scalar_modulation = scalar_modulation
+                index_embed_dim=index_embed_dim, value_mlp_dim=value_mlp_dim, scalar_modulation=scalar_modulation
             )
 
         # Post-processing network: Refines aggregated features and projects to output dimension
@@ -174,12 +174,12 @@ class SparseMetadataEncoder(nn.Module):
             nn.Dropout(p_post_dropout),
             nn.Linear(index_embed_dim, out_dim),
             nn.LayerNorm(out_dim),
-            nn.GELU()
+            nn.GELU(),
         )
 
         assert aggregation in ("sum", "mean"), "aggregation must be 'sum' or 'mean'"
         self.aggregation = aggregation
-        
+
         # Optional learnable affine normalization per feature
         # This normalization is learned based on training dataset statistics and applied
         # before the FiLM modulation. It's independent and not contextualized like FiLM.
@@ -192,12 +192,11 @@ class SparseMetadataEncoder(nn.Module):
             self.register_parameter("value_shift", None)
 
         self.reduce = reduce
-        
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass to encode sparse metadata.
-        
+
         Args:
             x (torch.Tensor): Input tensor of shape (B, S, F) where:
                 - B is the batch size
@@ -212,20 +211,20 @@ class SparseMetadataEncoder(nn.Module):
         """
 
         device = x.device
-        
+
         B, S, F = x.shape
-        
+
         # Flatten batch and sequence dimensions for processing
-        x_flat = x.view(B*S, F) # (B*S, F) 
+        x_flat = x.view(B * S, F)  # (B*S, F)
 
         # Create mask of observed (non-NaN) entries
-        mask = ~torch.isnan(x_flat) # (B*S, F)
-        
-        # Get indices of all non-NaN values: 
+        mask = ~torch.isnan(x_flat)  # (B*S, F)
+
+        # Get indices of all non-NaN values:
         # Returns (N, 2) where N is number of OBSERVED (non NaN) values
         # Each row is [sample_index, feature_index]
         idxs = torch.nonzero(mask, as_tuple=False)
-        
+
         # Edge case: entire batch is all-NaN.
         # When learn_missing_emb=False, return zeros of the correct output shape
         # for backward compatibility with checkpoints trained before this feature.
@@ -239,16 +238,16 @@ class SparseMetadataEncoder(nn.Module):
             else:
                 mt = self.missing_emb.to(dtype=x.dtype)
                 agg_full = mt.unsqueeze(0).expand(B * S, -1).contiguous()  # (B*S, index_embed_dim)
-                out_flat = self.post(agg_full)   # (B*S, out_dim)
-                out = out_flat.view(B, S, -1)    # (B, S, out_dim)
+                out_flat = self.post(agg_full)  # (B*S, out_dim)
+                out = out_flat.view(B, S, -1)  # (B, S, out_dim)
                 if self.reduce:
-                    return out.mean(dim=1)       # (B, out_dim)
+                    return out.mean(dim=1)  # (B, out_dim)
                 return out
 
         # Extract sample and feature indices for all observed values
-        sample_idx = idxs[:, 0] # (N,), values in [0, B*S) indicating which sample
-        feat_idx = idxs[:, 1]   # (N,), values in [0, F) indicating which feature
-        
+        sample_idx = idxs[:, 0]  # (N,), values in [0, B*S) indicating which sample
+        feat_idx = idxs[:, 1]  # (N,), values in [0, F) indicating which feature
+
         # Extract the actual observed values from x_flat and add dimension for MLP input
         vals = x_flat[sample_idx, feat_idx].unsqueeze(1)  # (N, 1)
         if logger.isEnabledFor(logging.DEBUG):
@@ -257,7 +256,9 @@ class SparseMetadataEncoder(nn.Module):
             if has_nan or has_inf:
                 logger.debug(
                     "[SparseEncoder] vals has NaN=%s Inf=%s  (N=%d observed tokens)",
-                    has_nan.item(), has_inf.item(), vals.shape[0]
+                    has_nan.item(),
+                    has_inf.item(),
+                    vals.shape[0],
                 )
 
         # Optional: Apply learnable per-feature normalization
@@ -269,27 +270,27 @@ class SparseMetadataEncoder(nn.Module):
             norm_shift = self.value_shift[feat_idx].unsqueeze(1)
             vals = vals * norm_sc + norm_shift
 
-        """ 
+        """
         TODO for the future:
         1) Keep a small dictionary of feature types "categorical" vs "continuous" (need to modify this in melanies feature encoder).
         2) For categorical features: ignore value_mlp, just use index_emb (optionally with one-hot presence, i.e. put NaN instead of 0s and a single 1; or small learned embedding for each category value).
         3) For numeric: use FiLM/value MLP.
         """
-        
+
         # Get feature embeddings for all observed features
-        idx_emb = self.index_emb(feat_idx) # (N, index_embed_dim)
+        idx_emb = self.index_emb(feat_idx)  # (N, index_embed_dim)
 
         # Contextualize the numeric value with its feature embedding
         # The feature embedding provides semantic context for interpreting the numeric value
         val_input = torch.cat([vals, idx_emb], dim=1)  # (N, 1 + index_embed_dim)
-        
+
         # Predict FiLM parameters (alpha for scaling, beta for shifting)
-        val_params = self.value_mlp(val_input) # (N, 2 * index_embed_dim)
+        val_params = self.value_mlp(val_input)  # (N, 2 * index_embed_dim)
 
         # Split into alpha (scale) and beta (shift) parameters
-        alpha, beta = val_params.chunk(2, dim=1)       # 2 * (N, index_embed_dim)
+        alpha, beta = val_params.chunk(2, dim=1)  # 2 * (N, index_embed_dim)
         # print(alpha.shape, beta.shape)
-        
+
         # Apply FiLM modulation: slight residual scaling and shifting
         modulated_feat = idx_emb * (1 + alpha) + beta  # (N, index_embed_dim)
 
@@ -313,37 +314,38 @@ class SparseMetadataEncoder(nn.Module):
         # hold zeros.  Feeding zeros into ResidualMLP's LayerNorm causes near-zero
         # variance -> ~316x gradient amplification -> NaN parameters.
         # Note: only all-NaN rows are replaced, not samples that merely have some NaNs.
-        per_sample_obs = mask.sum(dim=1)   # (B*S,)
+        per_sample_obs = mask.sum(dim=1)  # (B*S,)
         all_nan_mask = per_sample_obs == 0
         if all_nan_mask.any():
             agg = agg.clone()  # avoid in-place on a view that autograd may track
             agg[all_nan_mask] = self.missing_emb.to(agg.dtype)
 
         # Apply post-processing network to refine and project to output dimension
-        out_flat = self.post(agg)     # (B*S, out_dim)
+        out_flat = self.post(agg)  # (B*S, out_dim)
 
-        out = out_flat.view(B, S, -1) # (B, S, out_dim)
-        
+        out = out_flat.view(B, S, -1)  # (B, S, out_dim)
+
         # Optionally reduce sequence dimension by averaging
         if self.reduce:
             out = out.mean(dim=1)  # (B, out_dim) - average pooling over S
         return out
 
+
 if __name__ == "__main__":
     B, S, F = 4, 8, 10
     x = torch.randn(B, S, F)
-    x[torch.rand_like(x) < 0.8] = float('nan')  # 80% missing
-    x[:,:, F//2] = 0.0 
+    x[torch.rand_like(x) < 0.8] = float("nan")  # 80% missing
+    x[:, :, F // 2] = 0.0
 
     print("Input tensor:")
     print(x.shape)
-    
+
     encoder = SparseMetadataEncoder(num_features=F, out_dim=128, scalar_modulation=False)
 
     total_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
-    print(f'Total trainable parameters: {total_params}')
+    print(f"Total trainable parameters: {total_params}")
 
     z = encoder(x)
 
     print("\n\nEncoder output:")
-    print("output shape:", z.shape) 
+    print("output shape:", z.shape)

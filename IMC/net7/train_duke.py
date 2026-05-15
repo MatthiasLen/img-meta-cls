@@ -222,9 +222,7 @@ def _validate_backbone(value: str) -> str:
         argparse.ArgumentTypeError: If *value* is not in the allowed list.
     """
     if value not in _VALID_BACKBONES:
-        raise argparse.ArgumentTypeError(
-            f"Invalid backbone_type '{value}'. Valid options: {_VALID_BACKBONES}"
-        )
+        raise argparse.ArgumentTypeError(f"Invalid backbone_type '{value}'. Valid options: {_VALID_BACKBONES}")
     return value
 
 
@@ -241,10 +239,7 @@ def _configure_dataset_env(args: argparse.Namespace) -> None:
     if args.label_csv_path:
         os.environ["LABEL_CSV_PATH"] = args.label_csv_path
 
-    missing = [
-        name for name in ("LOCAL_DATASET_PATH", "LABEL_CSV_PATH")
-        if not os.environ.get(name)
-    ]
+    missing = [name for name in ("LOCAL_DATASET_PATH", "LABEL_CSV_PATH") if not os.environ.get(name)]
     if missing:
         raise ValueError(
             "Missing Duke dataset configuration. Set the environment variables "
@@ -388,11 +383,7 @@ def main(args: argparse.Namespace) -> None:
     os.makedirs(fold_log_dir, exist_ok=True)
     experiment_name = f"fold_{fold_idx}_net07_duke_{args.backbone_type}"
 
-    device = (
-        torch.device(f"cuda:{args.gpu}")
-        if args.gpu >= 0 and torch.cuda.is_available()
-        else torch.device("cpu")
-    )
+    device = torch.device(f"cuda:{args.gpu}") if args.gpu >= 0 and torch.cuda.is_available() else torch.device("cpu")
 
     # ---- Logging ----
     logger, log_path, tb_logger = setup_combined_logging(
@@ -443,10 +434,10 @@ def main(args: argparse.Namespace) -> None:
     print(f"  LABEL_CSV_PATH = {os.environ['LABEL_CSV_PATH']}")
 
     with capture_console_to_log(logger):
-
         # ---- Datasets ----
         print("Creating dataloaders …")
         from IMC.data.duke_dataloader_3d import DukeLiverDataset3D
+
         train_dataset = DukeLiverDataset3D(
             split=[f"fold_{f}" for f in train_folds],
             target_depth=args.target_depth,
@@ -504,7 +495,7 @@ def main(args: argparse.Namespace) -> None:
             label_smoothing=0.1,
             task_names=list(DUKE_ORIGINAL_LABEL_NAMES.keys()),
         )
-        scaler = torch.amp.GradScaler("cuda", init_scale=2 ** 8)
+        scaler = torch.amp.GradScaler("cuda", init_scale=2**8)
         task_weights = [1.0] * len(cl_d)
 
         # ---- Trainer ----

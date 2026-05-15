@@ -82,6 +82,7 @@ from IMC.evaluate_duke import run_evaluation
 # Argument parser
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the Duke inference script.
 
@@ -199,10 +200,7 @@ def parse_args() -> argparse.Namespace:
         "--folds",
         type=str,
         default=None,
-        help=(
-            "Comma-separated fold indices to infer on "
-            "(e.g. '0,1,2').  Defaults to all data (no fold filter)."
-        ),
+        help=("Comma-separated fold indices to infer on (e.g. '0,1,2').  Defaults to all data (no fold filter)."),
     )
     parser.add_argument(
         "--dataset_path",
@@ -223,22 +221,19 @@ def parse_args() -> argparse.Namespace:
         help="Override LABEL_CSV_PATH environment variable.",
     )
     parser.add_argument("--batch_size", type=int, default=16, help="Inference mini-batch size.")
+    parser.add_argument("--num_workers", type=int, default=4, help="Number of DataLoader worker processes.")
+    parser.add_argument("--gpu", type=int, default=0, help="CUDA device index.  Use -1 for CPU.")
     parser.add_argument(
-        "--num_workers", type=int, default=4, help="Number of DataLoader worker processes."
-    )
-    parser.add_argument(
-        "--gpu", type=int, default=0, help="CUDA device index.  Use -1 for CPU."
-    )
-    parser.add_argument(
-        "--n_slices", type=int, default=3,
+        "--n_slices",
+        type=int,
+        default=3,
         help="Number of slices to sample from each MRI volume.",
     )
     parser.add_argument(
         "--run_eval",
         action="store_true",
         help=(
-            "Run evaluation after inference.  Requires a ground-truth label "
-            "CSV at LABEL_CSV_PATH / --label_csv_path."
+            "Run evaluation after inference.  Requires a ground-truth label CSV at LABEL_CSV_PATH / --label_csv_path."
         ),
     )
 
@@ -248,6 +243,7 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 # Dataset environment setup
 # ---------------------------------------------------------------------------
+
 
 def _configure_dataset_env(args: argparse.Namespace) -> None:
     """Apply Duke-specific dataset environment variables.
@@ -269,10 +265,7 @@ def _configure_dataset_env(args: argparse.Namespace) -> None:
     if args.label_csv_path:
         os.environ["LABEL_CSV_PATH"] = args.label_csv_path
 
-    missing = [
-        name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH")
-        if not os.environ.get(name)
-    ]
+    missing = [name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH") if not os.environ.get(name)]
     if missing:
         raise ValueError(
             "Missing Duke dataset configuration. Set the environment variables "
@@ -283,6 +276,7 @@ def _configure_dataset_env(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # Dataloader
 # ---------------------------------------------------------------------------
+
 
 def create_inference_dataloader(
     fold_indices: Optional[List[int]],
@@ -341,6 +335,7 @@ def create_inference_dataloader(
 # ---------------------------------------------------------------------------
 # Model loader
 # ---------------------------------------------------------------------------
+
 
 def load_model(
     args: argparse.Namespace,
@@ -413,6 +408,7 @@ def load_model(
 # Inference loop
 # ---------------------------------------------------------------------------
 
+
 def run_inference(
     model: nn.Module,
     dataloader: DataLoader,
@@ -479,8 +475,7 @@ def run_inference(
     # Derive binary contrast label from the phase prediction
     if "label_ContrastPhase" in label_maps:
         predictions["label_Contrast"] = [
-            "post" if phase not in ("pre", "na") else "pre"
-            for phase in predictions["label_ContrastPhase"]
+            "post" if phase not in ("pre", "na") else "pre" for phase in predictions["label_ContrastPhase"]
         ]
 
     output_df = pd.DataFrame({"Filepath": filepaths})
@@ -493,6 +488,7 @@ def run_inference(
 # ---------------------------------------------------------------------------
 # Main inference routine
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     """Run inference on the Duke Liver Dataset and optionally evaluate.
@@ -528,11 +524,7 @@ def main() -> None:
         print("Running inference on all data")
 
     # ---- device ------------------------------------------------------------
-    device = (
-        torch.device(f"cuda:{args.gpu}")
-        if args.gpu >= 0 and torch.cuda.is_available()
-        else torch.device("cpu")
-    )
+    device = torch.device(f"cuda:{args.gpu}") if args.gpu >= 0 and torch.cuda.is_available() else torch.device("cpu")
     print(f"Using device: {device}")
 
     # ---- dataloader --------------------------------------------------------
@@ -592,6 +584,10 @@ def main() -> None:
         print("=" * 80)
         label_csv_path = os.environ.get("LABEL_CSV_PATH")
         label_df = pd.read_csv(label_csv_path)
+        # Normalize label CSV Filepath column to match the relative paths written
+        # into predictions.csv by the dataloader (absolute paths in the label CSV
+        # would otherwise find zero common samples with pred_df).
+        label_df["Filepath"] = label_df["Filepath"].map(dataloader.dataset._normalize_dataset_index)
         run_evaluation(pred_df, label_df, args.output_dir)
         print(f"\n✓ Evaluation results saved to {args.output_dir}")
 

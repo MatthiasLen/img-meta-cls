@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class MultiTaskHead(nn.Module):
     """
     A multi-task learning head for medical image classification.
@@ -68,7 +69,7 @@ class MultiTaskHead(nn.Module):
             list: A list of tensors, where each tensor contains the output logits
                   for a specific task.
         """
-        
+
         return [head(x) for _, head in self.tasks_heads.items()]
 
 
@@ -83,6 +84,7 @@ class SimplifiedMultiTaskHead(nn.Module):
     This approach is less powerful than using separate heads for each task, as it
     forces all tasks to share the same final layer.
     """
+
     def __init__(self, input_dim: int, num_classes_dict: dict, dropout: float = 0.1, incl_regression: bool = True):
         super().__init__()
         self.tasks_heads = nn.Linear(input_dim, sum(num_classes_dict.values()))

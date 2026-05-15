@@ -1,50 +1,50 @@
 """
-    VERSION 0.4
-    2025/09/18
+VERSION 0.4
+2025/09/18
 
-    Updates / Change-log:
+Updates / Change-log:
 
-    1. Implemented Bi-Directional Cross-Attention embedding fusion. This is how it works:
-    Both modalities are projected to the same dimension.
-    Image embedding queries metadata embedding to get info from metadata relevant to image features.
-    Metadata embedding queries image embedding similarly.
-    Each attention output passes through a Transformer-style feedforward block with residuals and normalization.
-    Finally, concatenate both outputs and project down to a fixed output dimension.
+1. Implemented Bi-Directional Cross-Attention embedding fusion. This is how it works:
+Both modalities are projected to the same dimension.
+Image embedding queries metadata embedding to get info from metadata relevant to image features.
+Metadata embedding queries image embedding similarly.
+Each attention output passes through a Transformer-style feedforward block with residuals and normalization.
+Finally, concatenate both outputs and project down to a fixed output dimension.
 
-    2. Added a residual connection and layer normalization in SliceFeatureFusion to improve training stability.
+2. Added a residual connection and layer normalization in SliceFeatureFusion to improve training stability.
 
-    3. Improved initialization of CNN backbone. RGB filters from pretrained weights are averaged to obtain a 
-    grayscale image filter that can be used for the 1-channel convolution.
+3. Improved initialization of CNN backbone. RGB filters from pretrained weights are averaged to obtain a
+grayscale image filter that can be used for the 1-channel convolution.
 
-    4. MetadataEncoder was extended a bit to incorporate a residual block , dropout and layer normalization.
-
-
-    High-level architecture Diagram:
-
-    A) Multiple Slices (N x 2D images) ---> Shared CNN Backbone
-                                                |
-                                        Slice Embeddings
-                                                |
-                        Slice Embeddings Fusion with Multi-Head Self-Attention
-                                                |
-                                Fused Image Feature Vector (f_img)
+4. MetadataEncoder was extended a bit to incorporate a residual block , dropout and layer normalization.
 
 
-    B)                          DICOM Metadata Vector 
-                        (assuming single vector per volumetric image)
-                (concatenate slice embeddings if needed and feed concatednated vector) 
+High-level architecture Diagram:
+
+A) Multiple Slices (N x 2D images) ---> Shared CNN Backbone
                                             |
-                                    Metadata Encoder 
+                                    Slice Embeddings
                                             |
-                                    Metadata Embedding (f_meta)
+                    Slice Embeddings Fusion with Multi-Head Self-Attention
+                                            |
+                            Fused Image Feature Vector (f_img)
 
 
-    C) Bi-Directional Cross-Modal Attention Fusion ---> Multi-task Output Heads
-                                                               |
-                _______________________________________________|_____________
-                |                  |                     |                   |
-            Sequence Classifier   Plane Classifier   Body Region Classifier   Contrast Classifier
-            (Softmax)            (Softmax)            (Softmax)               (Sigmoid)
+B)                          DICOM Metadata Vector
+                    (assuming single vector per volumetric image)
+            (concatenate slice embeddings if needed and feed concatednated vector)
+                                        |
+                                Metadata Encoder
+                                        |
+                                Metadata Embedding (f_meta)
+
+
+C) Bi-Directional Cross-Modal Attention Fusion ---> Multi-task Output Heads
+                                                           |
+            _______________________________________________|_____________
+            |                  |                     |                   |
+        Sequence Classifier   Plane Classifier   Body Region Classifier   Contrast Classifier
+        (Softmax)            (Softmax)            (Softmax)               (Sigmoid)
 
 """
 
@@ -60,11 +60,12 @@ from IMC.nn.multi_task_head import MultiTaskHead
 
 from torchvision.models.densenet import DenseNet121_Weights
 from torchvision import models
-import logging 
+import logging
 import os
 
-logger = logging.getLogger('IMC')
+logger = logging.getLogger("IMC")
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
+
 
 class SliceFeatureFusion(nn.Module):
     """
@@ -82,7 +83,7 @@ class SliceFeatureFusion(nn.Module):
         fused_dim: int = 256,
         num_heads: int = 8,
         dropout: float = 0.1,
-        reduce: bool = False    
+        reduce: bool = False,
     ):
         super().__init__()
         self.slice_feat_dim = slice_feat_dim
@@ -96,8 +97,8 @@ class SliceFeatureFusion(nn.Module):
         self.qkv_proj = nn.Linear(slice_feat_dim, slice_feat_dim * 3)
         self.out_proj = nn.Sequential(nn.Linear(slice_feat_dim, fused_dim), nn.GELU())
         self.dropout = nn.Dropout(dropout)
-        
-        self.layer_norm =  nn.LayerNorm(self.slice_feat_dim)
+
+        self.layer_norm = nn.LayerNorm(self.slice_feat_dim)
 
         # Scaling factor for attention scores
         self.scale = (slice_feat_dim // num_heads) ** -0.5
@@ -123,9 +124,7 @@ class SliceFeatureFusion(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]  # each: (B, heads, N, head_dim)
 
         # Compute scaled dot-product attention scores
-        attn_scores = (
-            torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        )  # (B, heads, N, N)
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # (B, heads, N, N)
         # Softmax over last dimension (keys)
         attn_probs = F.softmax(attn_scores, dim=-1)
 
@@ -137,11 +136,11 @@ class SliceFeatureFusion(nn.Module):
 
         # Concatenate heads back to (B, N, C)
         attn_output = attn_output.transpose(1, 2).reshape(B, N, C)  # (B, N, C)
-        
+
         # residual connection with layer norm
         x = slice_feats + attn_output
         x = self.layer_norm(x)
- 
+
         # Pool over slice dimension (tokens) by averaging
         if self.reduce:
             x = x.mean(dim=1)  # (B, C)
@@ -162,6 +161,7 @@ class BiDirectionalCrossModalAttentionFusion(nn.Module):
     Each output passes through FFN + residual + LayerNorm for stability.
     The two fused embeddings are concatenated and projected to the final output dimension.
     """
+
     def __init__(
         self,
         image_emb_dim: int,
@@ -179,8 +179,12 @@ class BiDirectionalCrossModalAttentionFusion(nn.Module):
         self.meta_proj = nn.Linear(metadata_emb_dim, embed_dim)
 
         # Multi-head attention modules for both directions
-        self.img_to_meta_attn = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
-        self.meta_to_img_attn = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
+        self.img_to_meta_attn = nn.MultiheadAttention(
+            embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True
+        )
+        self.meta_to_img_attn = nn.MultiheadAttention(
+            embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True
+        )
 
         # LayerNorms and Feedforward blocks for both outputs
         self.norm_img1 = nn.LayerNorm(embed_dim)
@@ -229,14 +233,18 @@ class BiDirectionalCrossModalAttentionFusion(nn.Module):
         meta_emb_seq = meta_emb.unsqueeze(1)
 
         # Image queries metadata
-        img_attn_out, _ = self.img_to_meta_attn(query=img_emb_seq, key=meta_emb_seq, value=meta_emb_seq)  # (B,1,embed_dim)
+        img_attn_out, _ = self.img_to_meta_attn(
+            query=img_emb_seq, key=meta_emb_seq, value=meta_emb_seq
+        )  # (B,1,embed_dim)
         img_out = self.norm_img1(img_attn_out.squeeze(1) + img_emb)  # Residual + Norm
 
         img_out_ff = self.ff_img(img_out)
         img_out = self.norm_img2(img_out + img_out_ff)  # FFN + Residual + Norm
 
         # Metadata queries image
-        meta_attn_out, _ = self.meta_to_img_attn(query=meta_emb_seq, key=img_emb_seq, value=img_emb_seq)  # (B,1,embed_dim)
+        meta_attn_out, _ = self.meta_to_img_attn(
+            query=meta_emb_seq, key=img_emb_seq, value=img_emb_seq
+        )  # (B,1,embed_dim)
         meta_out = self.norm_meta1(meta_attn_out.squeeze(1) + meta_emb)  # Residual + Norm
 
         meta_out_ff = self.ff_meta(meta_out)
@@ -249,7 +257,8 @@ class BiDirectionalCrossModalAttentionFusion(nn.Module):
         output = self.output_proj(fused)  # (B, output_dim)
 
         return output
-    
+
+
 class BiDirectionalCrossModalAttentionFusionV2(nn.Module):
     """
     Cross-attention fusion (v2) using sequence-style inputs and learned weighted pooling.
@@ -258,6 +267,7 @@ class BiDirectionalCrossModalAttentionFusionV2(nn.Module):
     - Operates directly on embeddings without adding singleton sequence length
     - Adds a learned weighted pooling over the fused output to emphasize salient features
     """
+
     def __init__(
         self,
         image_emb_dim: int,
@@ -275,8 +285,12 @@ class BiDirectionalCrossModalAttentionFusionV2(nn.Module):
         self.meta_proj = nn.Linear(metadata_emb_dim, embed_dim)
 
         # Multi-head attention modules for both directions
-        self.img_to_meta_attn = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
-        self.meta_to_img_attn = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True)
+        self.img_to_meta_attn = nn.MultiheadAttention(
+            embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True
+        )
+        self.meta_to_img_attn = nn.MultiheadAttention(
+            embed_dim=embed_dim, num_heads=num_heads, dropout=dropout, batch_first=True
+        )
 
         # LayerNorms and Feedforward blocks for both outputs
         self.norm_img1 = nn.LayerNorm(embed_dim)
@@ -328,14 +342,18 @@ class BiDirectionalCrossModalAttentionFusionV2(nn.Module):
         # meta_emb_seq = meta_emb.unsqueeze(1)
 
         # Image queries metadata
-        img_attn_out, _ = self.img_to_meta_attn(query=img_emb_seq, key=meta_emb_seq, value=meta_emb_seq)  # (B,1,embed_dim)
+        img_attn_out, _ = self.img_to_meta_attn(
+            query=img_emb_seq, key=meta_emb_seq, value=meta_emb_seq
+        )  # (B,1,embed_dim)
         img_out = self.norm_img1(img_attn_out + img_emb_seq)  # Residual + Norm
 
         img_out_ff = self.ff_img(img_out)
         img_out = self.norm_img2(img_out + img_out_ff)  # FFN + Residual + Norm
 
         # Metadata queries image
-        meta_attn_out, _ = self.meta_to_img_attn(query=meta_emb_seq, key=img_emb_seq, value=img_emb_seq)  # (B,1,embed_dim)
+        meta_attn_out, _ = self.meta_to_img_attn(
+            query=meta_emb_seq, key=img_emb_seq, value=img_emb_seq
+        )  # (B,1,embed_dim)
         meta_out = self.norm_meta1(meta_attn_out + meta_emb_seq)  # Residual + Norm
 
         meta_out_ff = self.ff_meta(meta_out)
@@ -347,7 +365,7 @@ class BiDirectionalCrossModalAttentionFusionV2(nn.Module):
         # Final projection
         output = self.output_proj(fused)  # (B, output_dim)
 
-        # Weighted pooling 
+        # Weighted pooling
         weights = F.softmax(self.weighted_pooling(output), dim=1)  # (B, 1)
         output = (output * weights).sum(dim=1)  # (B, output_dim)
 
@@ -448,7 +466,7 @@ class MetadataGatedFusion(nn.Module):
         Returns:
             Fused embedding ``(B, output_dim)``.
         """
-        g = torch.sigmoid(self.gate_fc(meta_feat))          # (B, output_dim)
+        g = torch.sigmoid(self.gate_fc(meta_feat))  # (B, output_dim)
         return g * self.meta_proj(meta_feat) + (1 - g) * self.img_proj(img_feat)
 
 
@@ -483,17 +501,17 @@ class MRISequenceClassifier(nn.Module):
         metadata_embed_dim: int = 128,
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
-        metadata_encoder_type: str = "imputer", # "imputer" or "sparse"
-        imputer_type: str = "contextual", # if metadata_encoder_type is "imputer", which type to use ("contextual" or "ignore")
-        sparse_enc_version: str = "v1", # if metadata_encoder_type is "sparse", which version to use ("v1", "v2", or "v5")
-        img_enc_backbone: str | None = "densenet121", # "densenet" or "swin", None for resnet50 as default
+        metadata_encoder_type: str = "imputer",  # "imputer" or "sparse"
+        imputer_type: str = "contextual",  # if metadata_encoder_type is "imputer", which type to use ("contextual" or "ignore")
+        sparse_enc_version: str = "v1",  # if metadata_encoder_type is "sparse", which version to use ("v1", "v2", or "v5")
+        img_enc_backbone: str | None = "densenet121",  # "densenet" or "swin", None for resnet50 as default
         incl_regression: bool = True,
         dropout_metadata: bool = False,
-        fusion_module_version: str = "v1", #v1 or v2 or concat or v3
+        fusion_module_version: str = "v1",  # v1 or v2 or concat or v3
         scalar_modulation: bool = False,
         n_channels: int = 1,  # 1 = single-window grayscale; 3 = multi-window (e.g. soft_tissue/angio/bone),
         learn_missing_embed: bool = False,  # Whether to learn a special embedding for missing metadata instead of using 0 tensors in the sparse metadata encoder V1
-        pre_processors=None,   # Optional list of PreProcessor callables; applied to metadata before encoding (eval only).
+        pre_processors=None,  # Optional list of PreProcessor callables; applied to metadata before encoding (eval only).
         post_processors=None,  # Optional list of PostProcessor callables; applied to logits after the head (eval only).
     ):
         super().__init__()
@@ -501,28 +519,30 @@ class MRISequenceClassifier(nn.Module):
         slice_feat_dim = self.image_encoder.get_feature_dimension()
 
         # Check fusion module version
-        assert fusion_module_version in ["v1", "v2", "concat", "v3"], "fusion_module_version must be 'v1', 'v2', 'concat', or 'v3'"
+        assert fusion_module_version in ["v1", "v2", "concat", "v3"], (
+            "fusion_module_version must be 'v1', 'v2', 'concat', or 'v3'"
+        )
         # Check metadata encoder type
         assert metadata_encoder_type in ["imputer", "sparse"], "metadata_encoder_type must be 'imputer' or 'sparse'"
         # Check imputer type
         assert imputer_type in ["contextual", "ignore"], "imputer_type must be 'contextual' or 'ignore'"
         # Check sparse encoder version
         assert sparse_enc_version in ["v1", "v2", "v5"], "sparse_enc_version must be 'v1', 'v2', or 'v5'"
-        
+
         # v3 uses 2D (reduced) tensors like v1; v2/concat use 3D sequence tensors
         _use_reduce = fusion_module_version in ("v1", "v3")
 
         # Prefill for slice_fusion and metadata encoder based on fusion module version
         self.slice_fusion = SliceFeatureFusion(
-            slice_feat_dim=slice_feat_dim, 
-            fused_dim=fused_feat_dim, 
+            slice_feat_dim=slice_feat_dim,
+            fused_dim=fused_feat_dim,
             reduce=_use_reduce,
         )
         if metadata_encoder_type == "imputer":
             self.metadata_encoder = MetadataEncoder(
-                metadata_input_dim, 
-                embed_dim=metadata_embed_dim, 
-                imputer=imputer_type, 
+                metadata_input_dim,
+                embed_dim=metadata_embed_dim,
+                imputer=imputer_type,
                 reduce=_use_reduce,
             )
         elif metadata_encoder_type == "sparse":
@@ -532,7 +552,7 @@ class MRISequenceClassifier(nn.Module):
                     out_dim=metadata_embed_dim,
                     reduce=_use_reduce,
                     scalar_modulation=scalar_modulation,
-                    learn_missing_emb=learn_missing_embed
+                    learn_missing_emb=learn_missing_embed,
                 )
             elif sparse_enc_version == "v2":
                 self.metadata_encoder = SparseEncoderV2(
@@ -565,7 +585,7 @@ class MRISequenceClassifier(nn.Module):
                 image_emb_dim=fused_feat_dim,
                 metadata_emb_dim=metadata_embed_dim,
                 output_dim=output_emb_dim,
-                reduce=True
+                reduce=True,
             )
         elif fusion_module_version == "v3":
             self.embedding_fusion = MetadataGatedFusion(
@@ -580,7 +600,7 @@ class MRISequenceClassifier(nn.Module):
         self._task_names = list(num_classes_dict.keys())
         # Plain Python callables (not nn.Module); only invoked during eval.
         # Assign after construction if needed: model.pre_processors = [...] / model.post_processors = [...]
-        self.pre_processors  = list(pre_processors)  if pre_processors  else []
+        self.pre_processors = list(pre_processors) if pre_processors else []
         self.post_processors = list(post_processors) if post_processors else []
 
     def forward(self, image_slices: torch.Tensor, metadata: torch.Tensor) -> tuple:
@@ -594,8 +614,12 @@ class MRISequenceClassifier(nn.Module):
         if DEBUG_MODE:
             logger.debug(f"Input image_slices shape: {image_slices.shape}")
             logger.debug(f"Input metadata shape: {metadata.shape}")
-            logger.debug(f"Input stats - Images: min={image_slices.min():.3f}, max={image_slices.max():.3f}, mean={image_slices.mean():.3f}")
-            logger.debug(f"Input stats - Metadata: min={metadata.min():.3f}, max={metadata.max():.3f}, mean={metadata.mean():.3f}")
+            logger.debug(
+                f"Input stats - Images: min={image_slices.min():.3f}, max={image_slices.max():.3f}, mean={image_slices.mean():.3f}"
+            )
+            logger.debug(
+                f"Input stats - Metadata: min={metadata.min():.3f}, max={metadata.max():.3f}, mean={metadata.mean():.3f}"
+            )
             has_nan = torch.isnan(metadata).any()
             has_inf = torch.isinf(metadata).any()
             if has_nan or has_inf:
@@ -605,15 +629,17 @@ class MRISequenceClassifier(nn.Module):
         if self.training and self.dropout_metadata:
             prob = 0.3
             mask = torch.rand(metadata.shape, device=metadata.device) < prob
-            metadata = metadata.masked_fill(mask, float('nan'))
-        
+            metadata = metadata.masked_fill(mask, float("nan"))
+
         # Encode image slices
         slice_feats = self.image_encoder(image_slices)  # (B, N_slices, slice_feat_dim)
         fused_img_feat = self.slice_fusion(slice_feats)  # (B, fused_feat_dim)
-        
+
         if DEBUG_MODE:
             logger.debug(f"Fused image feature shape: {fused_img_feat.shape}")
-            logger.debug(f"Fused image feature stats: min={fused_img_feat.min():.3f}, max={fused_img_feat.max():.3f}, mean={fused_img_feat.mean():.3f}")
+            logger.debug(
+                f"Fused image feature stats: min={fused_img_feat.min():.3f}, max={fused_img_feat.max():.3f}, mean={fused_img_feat.mean():.3f}"
+            )
             has_nan = torch.isnan(fused_img_feat).any()
             has_inf = torch.isinf(fused_img_feat).any()
             if has_nan or has_inf:
@@ -629,18 +655,22 @@ class MRISequenceClassifier(nn.Module):
 
         if DEBUG_MODE:
             logger.debug(f"Metadata feature shape: {metadata_feat.shape}")
-            logger.debug(f"Metadata feature stats: min={metadata_feat.min():.3f}, max={metadata_feat.max():.3f}, mean={metadata_feat.mean():.3f}")
+            logger.debug(
+                f"Metadata feature stats: min={metadata_feat.min():.3f}, max={metadata_feat.max():.3f}, mean={metadata_feat.mean():.3f}"
+            )
             has_nan = torch.isnan(metadata_feat).any()
             has_inf = torch.isinf(metadata_feat).any()
             if has_nan or has_inf:
                 logger.debug(f"Metadata feature contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-        
+
         # Fuse features from image embedding and meta data embedding
         joint_feat = self.embedding_fusion(fused_img_feat, metadata_feat)
 
         if DEBUG_MODE:
             logger.debug(f"Joint feature shape: {joint_feat.shape}")
-            logger.debug(f"Joint feature stats: min={joint_feat.min():.3f}, max={joint_feat.max():.3f}, mean={joint_feat.mean():.3f}")
+            logger.debug(
+                f"Joint feature stats: min={joint_feat.min():.3f}, max={joint_feat.max():.3f}, mean={joint_feat.mean():.3f}"
+            )
             has_nan = torch.isnan(joint_feat).any()
             has_inf = torch.isinf(joint_feat).any()
             if has_nan or has_inf:
@@ -657,14 +687,16 @@ class MRISequenceClassifier(nn.Module):
         if DEBUG_MODE:
             for i, r in enumerate(res):
                 logger.debug(f"Output logits for task {i} shape: {r.shape}")
-                logger.debug(f"Output logits for task {i} stats: min={r.min():.3f}, max={r.max():.3f}, mean={r.mean():.3f}")
+                logger.debug(
+                    f"Output logits for task {i} stats: min={r.min():.3f}, max={r.max():.3f}, mean={r.mean():.3f}"
+                )
                 has_nan = torch.isnan(r).any()
                 has_inf = torch.isinf(r).any()
                 if has_nan or has_inf:
                     logger.debug(f"Output logits for task {i} contains invalid values - NaN: {has_nan}, Inf: {has_inf}")
-                    
+
         return res
-    
+
     @torch.no_grad()
     def get_metadata_features(self, metadata: torch.Tensor) -> torch.Tensor:
         """
@@ -675,6 +707,8 @@ class MRISequenceClassifier(nn.Module):
             torch.Tensor: Metadata features (B, metadata_embed_dim)
         """
         return self.metadata_encoder(metadata)
+
+
 class ImageBasedClassifier(nn.Module):
     """
     Image-only ablation model.
@@ -688,18 +722,16 @@ class ImageBasedClassifier(nn.Module):
         num_classes_dict: dict,
         fused_feat_dim: int = 256,
         output_emb_dim: int = 128,
-        img_enc_backbone: str | None = "swin", # "densenet" or "swin", None for resnet50 as default
+        img_enc_backbone: str | None = "swin",  # "densenet" or "swin", None for resnet50 as default
         incl_regression: bool = False,
         n_channels: int = 1,  # 1 = single-window grayscale; 3 = multi-window (e.g. soft_tissue/angio/bone)
     ):
         super().__init__()
         self.image_encoder = MultiSliceImageEncoder(backbone=img_enc_backbone, n_channels=n_channels)
-        
+
         slice_feat_dim = self.image_encoder.get_feature_dimension()
 
-        self.slice_fusion = SliceFeatureFusion(
-            slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=True
-        )
+        self.slice_fusion = SliceFeatureFusion(slice_feat_dim=slice_feat_dim, fused_dim=fused_feat_dim, reduce=True)
 
         self.output_proj = nn.Sequential(
             nn.Linear(fused_feat_dim, output_emb_dim),
@@ -716,19 +748,19 @@ class ImageBasedClassifier(nn.Module):
         Returns:
             tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
         """
-        
+
         # Encode image slices
         slice_feats = self.image_encoder(image_slices)  # (B, N_slices, slice_feat_dim)
         fused_img_feat = self.slice_fusion(slice_feats)  # (B, fused_feat_dim)
-        
+
         joint_feat = self.output_proj(fused_img_feat)
 
         # feed combined embedding to multi-task head
         res = self.multi_task_head(joint_feat)
         return res
 
-class SimpleImageBasedClassifier(nn.Module):
 
+class SimpleImageBasedClassifier(nn.Module):
     def __init__(
         self,
         num_classes_dict: dict,
@@ -755,7 +787,8 @@ class SimpleImageBasedClassifier(nn.Module):
         slice_feats = self.image_encoder(image_slices)  # (B, N_slices, slice_feat_dim)
         res = self.multi_task_head(slice_feats)
         return res
-    
+
+
 class MetadataBasedClassifier(nn.Module):
     """
     Metadata-only ablation model.
@@ -770,19 +803,16 @@ class MetadataBasedClassifier(nn.Module):
         metadata_input_dim: int,
         metadata_embed_dim: int = 128,
         output_emb_dim: int = 256,
-        metadata_encoder_type: str = "imputer", # "imputer" or "sparse"
-        imputer_type: str = "contextual", # "contextual" or "ignore" (only relevant if metadata_encoder_type is "imputer"),
-        sparse_enc_version: str = "v1", # if metadata_encoder_type is "sparse", which version to use ("v1", "v2", or "v5")
+        metadata_encoder_type: str = "imputer",  # "imputer" or "sparse"
+        imputer_type: str = "contextual",  # "contextual" or "ignore" (only relevant if metadata_encoder_type is "imputer"),
+        sparse_enc_version: str = "v1",  # if metadata_encoder_type is "sparse", which version to use ("v1", "v2", or "v5")
         incl_regression: bool = False,
     ):
         super().__init__()
         logger.info(f"Initializing MetadataBasedClassifier with metadata_encoder_type={metadata_encoder_type}")
         if metadata_encoder_type == "imputer":
             self.metadata_encoder = MetadataEncoder(
-                metadata_input_dim, 
-                embed_dim=metadata_embed_dim, 
-                imputer=imputer_type, 
-                reduce=True
+                metadata_input_dim, embed_dim=metadata_embed_dim, imputer=imputer_type, reduce=True
             )
             logger.info(f"Using MetadataEncoder with imputer type: {imputer_type}")
         elif metadata_encoder_type == "sparse":
@@ -830,6 +860,7 @@ class MetadataBasedClassifier(nn.Module):
         res = self.multi_task_head(proj_feat)
         return res
 
+
 if __name__ == "__main__":
     # Quick test for MRISequenceClassifier
     # Dummy input sizes
@@ -869,5 +900,3 @@ if __name__ == "__main__":
     # Print output shapes for verification
     for r in res:
         print(r.shape)
-
-        

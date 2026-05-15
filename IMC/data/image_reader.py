@@ -105,9 +105,7 @@ class ImageReader(ABC):
     """
 
     @abstractmethod
-    def list_files(
-        self, folder: Path, series_uid: Optional[str] = None
-    ) -> List[Path]:
+    def list_files(self, folder: Path, series_uid: Optional[str] = None) -> List[Path]:
         """Return a naturally-sorted list of image files under *folder*.
 
         Args:
@@ -125,9 +123,7 @@ class ImageReader(ABC):
         """
 
     @abstractmethod
-    def read_pixel_array(
-        self, path: Path
-    ) -> Tuple[Optional[np.ndarray], Any]:
+    def read_pixel_array(self, path: Path) -> Tuple[Optional[np.ndarray], Any]:
         """Read the 2-D pixel array from *path*.
 
         On success returns ``(array, header)`` where *array* is a 2-D
@@ -165,9 +161,7 @@ class DicomImageReader(ImageReader):
     # ImageReader interface
     # ------------------------------------------------------------------
 
-    def list_files(
-        self, folder: Path, series_uid: Optional[str] = None
-    ) -> List[Path]:
+    def list_files(self, folder: Path, series_uid: Optional[str] = None) -> List[Path]:
         """Return a naturally-sorted list of DICOM files in *folder*.
 
         When *series_uid* is provided only files whose ``SeriesInstanceUID``
@@ -191,9 +185,7 @@ class DicomImageReader(ImageReader):
         if not folder.exists():
             raise RuntimeError(f"DICOM folder not found: {folder}")
 
-        files: List[Path] = (
-            list(folder.rglob("*.dcm")) + list(folder.rglob("*.dicom"))
-        )
+        files: List[Path] = list(folder.rglob("*.dcm")) + list(folder.rglob("*.dicom"))
 
         if not files and self.allow_no_extension:
             files = [p for p in folder.rglob("*") if p.is_file()]
@@ -246,15 +238,10 @@ class DicomImageReader(ImageReader):
                 pass  # unreadable file — skip silently
 
         if not matched:
-            raise RuntimeError(
-                f"No DICOM files with SeriesInstanceUID={series_uid!r} "
-                f"found in: {folder}"
-            )
+            raise RuntimeError(f"No DICOM files with SeriesInstanceUID={series_uid!r} found in: {folder}")
         return matched
 
-    def read_pixel_array(
-        self, path: Path
-    ) -> Tuple[Optional[np.ndarray], Any]:
+    def read_pixel_array(self, path: Path) -> Tuple[Optional[np.ndarray], Any]:
         """Read a DICOM file and return its raw pixel array and dataset.
 
         The returned array is always 2-D ``float32`` when the file is

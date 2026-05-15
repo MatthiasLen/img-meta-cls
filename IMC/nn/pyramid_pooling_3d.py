@@ -25,13 +25,11 @@ class PyramidPooling3D(nn.Module):
         levels: A list of tuples, where each tuple specifies the grid size
                 for one level of adaptive average pooling (e.g., (1, 1, 1)).
     """
+
     def __init__(self, in_channels: int, levels: list = [(1, 1, 1), (2, 2, 2), (4, 4, 4)]):
         super().__init__()
         self.levels = levels
-        self.poolers = nn.ModuleList([
-            nn.AdaptiveAvgPool3d(output_size=level)
-            for level in levels
-        ])
+        self.poolers = nn.ModuleList([nn.AdaptiveAvgPool3d(output_size=level) for level in levels])
 
         # Each pooled level is flattened, so the total output dimension is the sum of all flattened pool outputs
         # C * D * H * W for each level
@@ -55,7 +53,8 @@ class PyramidPooling3D(nn.Module):
 
         return torch.cat(pooled_outputs, dim=1)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # Test the PyramidPooling3D module
     in_channels = 256
     model = PyramidPooling3D(in_channels=in_channels, levels=[(1, 1, 1), (2, 2, 2), (4, 4, 4)])

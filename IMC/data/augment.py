@@ -4,6 +4,7 @@ Version: 2025-09-29
 """
 
 import logging
+
 # import elasticdeform
 import numpy as np
 from scipy.ndimage import rotate, zoom
@@ -112,26 +113,26 @@ NONE3D = {
 
 CT_NONE2D = {
     "patch_size": 224,
-    "crop": "resize_pad",        # aspect-ratio resize + zero-pad
+    "crop": "resize_pad",  # aspect-ratio resize + zero-pad
     "flip": False,
     "rot90": False,
     "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.0},
     "noise": {"max_std": 0.0, "rate": 0.0, "fixed": False},
     "gamma": {"min_log_gamma": 0.0, "max_log_gamma": 0.0, "rate": 0.0},
-    "blur":  {"max_sigma": 0.0, "rate": 0.0, "fixed": False},
+    "blur": {"max_sigma": 0.0, "rate": 0.0, "fixed": False},
     "project": "none",
     "normalize": "none",
 }
 
 CT_DEFAULT2D = {
     "patch_size": 224,
-    "crop": "resize_pad",        # aspect-ratio resize + zero-pad
+    "crop": "resize_pad",  # aspect-ratio resize + zero-pad
     "flip": True,
     "rot90": True,
     "elastic": {"num_control_points": 7, "sigma_frac": 0.1, "rate": 0.0},
     "noise": {"max_std": 0.05, "rate": 0.4, "fixed": False},
     "gamma": {"min_log_gamma": -0.2231, "max_log_gamma": 0.1823, "rate": 0.4},
-    "blur":  {"max_sigma": 1.5, "rate": 0.3, "fixed": False},
+    "blur": {"max_sigma": 1.5, "rate": 0.3, "fixed": False},
     "project": "none",
     "normalize": "none",
 }
@@ -183,10 +184,10 @@ def resize_pad(image: np.ndarray, patch_size: int) -> np.ndarray:
         image = zoom(image.astype(np.float32), zoom_factors, order=1)
 
     # Symmetric zero-pad to patch_size × patch_size
-    pad_top    = (patch_size - new_h) // 2
+    pad_top = (patch_size - new_h) // 2
     pad_bottom = patch_size - new_h - pad_top
-    pad_left   = (patch_size - new_w) // 2
-    pad_right  = patch_size - new_w - pad_left
+    pad_left = (patch_size - new_w) // 2
+    pad_right = patch_size - new_w - pad_left
 
     image = np.pad(
         image,
@@ -541,6 +542,7 @@ def augment(image: np.ndarray, augment_conf: str = "DEFAULT2D") -> np.ndarray:
 
     return image
 
+
 def _flip3d(volume: np.ndarray) -> np.ndarray:
     """Randomly flip the 3D volume along each axis."""
     if np.random.rand() < 0.5:
@@ -551,16 +553,18 @@ def _flip3d(volume: np.ndarray) -> np.ndarray:
         volume = np.flip(volume, axis=2)
     return volume
 
+
 def _rotate3d(volume: np.ndarray, max_angle: int, rate: float) -> np.ndarray:
     """Randomly rotate the 3D volume around each axis."""
     if np.random.rand() < rate:
         angle_x = np.random.uniform(-max_angle, max_angle)
         angle_y = np.random.uniform(-max_angle, max_angle)
         angle_z = np.random.uniform(-max_angle, max_angle)
-        volume = rotate(volume, angle_x, axes=(1, 2), reshape=False, order=1, mode='nearest')
-        volume = rotate(volume, angle_y, axes=(0, 2), reshape=False, order=1, mode='nearest')
-        volume = rotate(volume, angle_z, axes=(0, 1), reshape=False, order=1, mode='nearest')
+        volume = rotate(volume, angle_x, axes=(1, 2), reshape=False, order=1, mode="nearest")
+        volume = rotate(volume, angle_y, axes=(0, 2), reshape=False, order=1, mode="nearest")
+        volume = rotate(volume, angle_z, axes=(0, 1), reshape=False, order=1, mode="nearest")
     return volume
+
 
 def _scale3d(volume: np.ndarray, min_zoom: float, max_zoom: float, rate: float) -> np.ndarray:
     """Randomly scale the 3D volume."""
@@ -576,18 +580,25 @@ def _scale3d(volume: np.ndarray, min_zoom: float, max_zoom: float, rate: float) 
         end = [s + os for s, os in zip(start, orig_shape)]
 
         if zoom_factor > 1:
-            volume = zoomed_volume[start[0]:end[0], start[1]:end[1], start[2]:end[2]]
+            volume = zoomed_volume[start[0] : end[0], start[1] : end[1], start[2] : end[2]]
         else:
             padded_volume = np.zeros(orig_shape)
-            padded_volume[ -start[0]:-start[0]+new_shape[0],-start[1]:-start[1]+new_shape[1], -start[2]:-start[2]+new_shape[2]] = zoomed_volume
+            padded_volume[
+                -start[0] : -start[0] + new_shape[0],
+                -start[1] : -start[1] + new_shape[1],
+                -start[2] : -start[2] + new_shape[2],
+            ] = zoomed_volume
             volume = padded_volume
     return volume
+
 
 def _elastic3d(volume: np.ndarray, num_control_points: int, sigma_frac: float, rate: float) -> np.ndarray:
     """Apply elastic deformation to the 3D volume."""
     if np.random.rand() < rate:
         max_shape = np.max(np.array(volume.shape))
         sigma = sigma_frac * max_shape / num_control_points
+        import elasticdeform
+
         volume = elasticdeform.deform_random_grid(volume, sigma=sigma, points=num_control_points, order=1)
     return volume
 
@@ -626,4 +637,3 @@ def augment3d(volume: np.ndarray, conf: str = "DEFAULT3D") -> np.ndarray:
         volume = (volume - mean) / (std + 1e-8)
 
     return volume
-

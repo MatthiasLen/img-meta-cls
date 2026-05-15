@@ -5,14 +5,17 @@ import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from contextlib import contextmanager
+
 try:
     from torch.utils.tensorboard import SummaryWriter
+
     TENSORBOARD_AVAILABLE = True
 except ImportError:
     SummaryWriter = None
     TENSORBOARD_AVAILABLE = False
 
-def plot_batch_per_sample(batch, figsize=(15, 10), title = None, id = 1):
+
+def plot_batch_per_sample(batch, figsize=(15, 10), title=None, id=1):
     """
     Plots each sample (set of images) in a row.
 
@@ -23,7 +26,7 @@ def plot_batch_per_sample(batch, figsize=(15, 10), title = None, id = 1):
     """
     if not os.path.isdir("./tmp"):
         os.makedirs("./tmp")
-    
+
     B, N, C, H, W = batch.shape
     fig, axes = plt.subplots(B, N, figsize=figsize)
 
@@ -45,22 +48,25 @@ def plot_batch_per_sample(batch, figsize=(15, 10), title = None, id = 1):
         for j in range(N):
             img = batch[i, j].squeeze().cpu().numpy()
             ax = axes[i][j] if B > 1 else axes[j]
-            ax.imshow(img, cmap='gray')
-            ax.axis('off')
+            ax.imshow(img, cmap="gray")
+            ax.axis("off")
 
         # Add stats text to left of the row (using the first image axis)
         # Adjust position to the left outside the image
         ax_stats = axes[i][0] if B > 1 else axes[0]
         ax_stats.text(
-            -0.5, 0.5, stats_text,
+            -0.5,
+            0.5,
+            stats_text,
             fontsize=10,
-            va='center', ha='right',
+            va="center",
+            ha="right",
             transform=ax_stats.transAxes,
-            bbox=dict(facecolor='white', alpha=0.7, edgecolor='gray')
+            bbox=dict(facecolor="white", alpha=0.7, edgecolor="gray"),
         )
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])  # leave space for suptitle
-    plt.savefig(f"./tmp/{id}.png", dpi=300, bbox_inches='tight')
+    plt.savefig(f"./tmp/{id}.png", dpi=300, bbox_inches="tight")
     plt.close()
 
 
@@ -85,6 +91,7 @@ def normalize_per_sample(batch):
     std = std.clamp(min=1e-8)
     return (batch - mean) / std
 
+
 def count_parameters(model):
     """
     Returns the total number and tranable number of parameters in a PyTorch model.
@@ -96,13 +103,12 @@ def count_parameters(model):
         int: Total number of parameters.
         int: Number of trainable parameters
     """
-    total_p =  sum(p.numel() for p in model.parameters())
-    trainable_p =  sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_p = sum(p.numel() for p in model.parameters())
+    trainable_p = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return total_p, trainable_p
 
 
-def generate_timestamped_log_path(base_path="./logs/training.log",
-                                 timestamp_format="%Y%m%d_%H%M%S"):
+def generate_timestamped_log_path(base_path="./logs/training.log", timestamp_format="%Y%m%d_%H%M%S"):
     """
     Generate a timestamped log file path to distinguish between experiments.
 
@@ -122,11 +128,11 @@ def generate_timestamped_log_path(base_path="./logs/training.log",
     filename = os.path.basename(base_path)
 
     # Split filename into name and extension
-    if '.' in filename:
-        name, ext = filename.rsplit('.', 1)
-        ext = '.' + ext
+    if "." in filename:
+        name, ext = filename.rsplit(".", 1)
+        ext = "." + ext
     else:
-        name, ext = filename, ''
+        name, ext = filename, ""
 
     # Generate timestamp
     timestamp = datetime.now().strftime(timestamp_format)
@@ -141,13 +147,15 @@ def generate_timestamped_log_path(base_path="./logs/training.log",
         return timestamped_filename
 
 
-def setup_console_logging(log_file_path="./logs/training.log",
-                         log_level=logging.INFO,
-                         max_bytes=10*1024*1024,  # 10MB
-                         backup_count=5,
-                         console_level=logging.INFO,
-                         use_timestamp=True,
-                         timestamp_format="%Y%m%d_%H%M%S"):
+def setup_console_logging(
+    log_file_path="./logs/training.log",
+    log_level=logging.INFO,
+    max_bytes=10 * 1024 * 1024,  # 10MB
+    backup_count=5,
+    console_level=logging.INFO,
+    use_timestamp=True,
+    timestamp_format="%Y%m%d_%H%M%S",
+):
     """
     Set up logging to capture both console output and log to file with rotation.
 
@@ -175,7 +183,7 @@ def setup_console_logging(log_file_path="./logs/training.log",
         os.makedirs(log_dir)
 
     # Create logger
-    logger = logging.getLogger('IMC')
+    logger = logging.getLogger("IMC")
     logger.setLevel(logging.DEBUG)  # Set to lowest level, handlers will filter
 
     # Remove existing handlers to avoid duplicates
@@ -187,21 +195,13 @@ def setup_console_logging(log_file_path="./logs/training.log",
 
     # Create formatters
     detailed_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    console_formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%H:%M:%S'
-    )
+    console_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S")
 
     # File handler with rotation
-    file_handler = RotatingFileHandler(
-        actual_log_path,
-        maxBytes=max_bytes,
-        backupCount=backup_count
-    )
+    file_handler = RotatingFileHandler(actual_log_path, maxBytes=max_bytes, backupCount=backup_count)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(detailed_formatter)
     logger.addHandler(file_handler)
@@ -218,9 +218,7 @@ def setup_console_logging(log_file_path="./logs/training.log",
     return logger, actual_log_path
 
 
-def setup_params_logging(log_dir="./logs",
-                           max_bytes=10*1024*1024,
-                           backup_count=5):
+def setup_params_logging(log_dir="./logs", max_bytes=10 * 1024 * 1024, backup_count=5):
     """
     Convenience function to set up logging for experiments with automatic timestamping.
 
@@ -239,25 +237,24 @@ def setup_params_logging(log_dir="./logs",
         # Creates: ./logs/resnet_training_20241024_143052.log
     """
     log_file_path = os.path.join(log_dir, "params.log")
-    logger = logging.getLogger('IMC_params')
+    logger = logging.getLogger("IMC_params")
     logger.setLevel(logging.DEBUG)  # Set to lowest level, handlers will filter
 
-    file_handler = RotatingFileHandler(
-        log_file_path,
-        maxBytes=max_bytes,
-        backupCount=backup_count
-    )
+    file_handler = RotatingFileHandler(log_file_path, maxBytes=max_bytes, backupCount=backup_count)
     file_handler.setLevel(logging.DEBUG)
     logger.addHandler(file_handler)
     logger.info(f"Parameter logging initialized - File: {log_file_path}, Level: {logging.getLevelName(logging.DEBUG)}")
     return logger
 
-def setup_experiment_logging(experiment_name="training",
-                           log_dir="./logs",
-                           log_level=logging.INFO,
-                           max_bytes=10*1024*1024,
-                           backup_count=5,
-                           console_level=logging.INFO):
+
+def setup_experiment_logging(
+    experiment_name="training",
+    log_dir="./logs",
+    log_level=logging.INFO,
+    max_bytes=10 * 1024 * 1024,
+    backup_count=5,
+    console_level=logging.INFO,
+):
     """
     Convenience function to set up logging for experiments with automatic timestamping.
 
@@ -283,7 +280,7 @@ def setup_experiment_logging(experiment_name="training",
         max_bytes=max_bytes,
         backup_count=backup_count,
         console_level=console_level,
-        use_timestamp=True
+        use_timestamp=True,
     )
 
 
@@ -291,6 +288,7 @@ class TeeOutput:
     """
     A class to duplicate stdout/stderr to both console and log file.
     """
+
     def __init__(self, logger, level=logging.INFO):
         self.logger = logger
         self.level = level
@@ -299,7 +297,7 @@ class TeeOutput:
 
     def write(self, message):
         # Write to original output
-        if hasattr(self, 'original'):
+        if hasattr(self, "original"):
             self.original.write(message)
             self.original.flush()
 
@@ -310,15 +308,15 @@ class TeeOutput:
             self._is_writing = True
             # Buffer the message and log complete lines
             self.buffer += message
-            while '\n' in self.buffer:
-                line, self.buffer = self.buffer.split('\n', 1)
+            while "\n" in self.buffer:
+                line, self.buffer = self.buffer.split("\n", 1)
                 if line.strip():  # Only log non-empty lines
                     self.logger.log(self.level, line.strip())
         finally:
             self._is_writing = False
 
     def flush(self):
-        if hasattr(self, 'original'):
+        if hasattr(self, "original"):
             self.original.flush()
 
 
@@ -385,9 +383,9 @@ def log_training_start(logger, model=None, config=None):
         model: PyTorch model (optional)
         config: Configuration dictionary (optional)
     """
-    logger.info("="*80)
+    logger.info("=" * 80)
     logger.info(f"TRAINING SESSION STARTED - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info("="*80)
+    logger.info("=" * 80)
 
     if model is not None:
         total_params, trainable_params = count_parameters(model)
@@ -398,7 +396,7 @@ def log_training_start(logger, model=None, config=None):
         for key, value in config.items():
             logger.info(f"  {key}: {value}")
 
-    logger.info("-"*80)
+    logger.info("-" * 80)
 
 
 def log_training_end(logger, final_metrics=None):
@@ -409,7 +407,7 @@ def log_training_end(logger, final_metrics=None):
         logger: Logger instance
         final_metrics: Dictionary of final training metrics (optional)
     """
-    logger.info("-"*80)
+    logger.info("-" * 80)
     logger.info(f"TRAINING SESSION COMPLETED - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     if final_metrics is not None:
@@ -417,6 +415,4 @@ def log_training_end(logger, final_metrics=None):
         for metric, value in final_metrics.items():
             logger.info(f"  {metric}: {value}")
 
-    logger.info("="*80)
-
-
+    logger.info("=" * 80)

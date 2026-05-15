@@ -143,6 +143,7 @@ def run_inference(
         :class:`~pandas.DataFrame` with columns ``Filepath`` + one column per task.
     """
     from IMC.data.duke_dataloader_3d import DukeLiverDataset3D
+
     dataset = DukeLiverDataset3D(
         split=split,
         target_depth=target_depth,
@@ -209,10 +210,7 @@ def run_inference(
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for net7 Duke inference."""
     parser = argparse.ArgumentParser(
-        description=(
-            "Batch inference for Network v07 (PyramidPooling3DClassifier) "
-            "on the Duke Liver Dataset."
-        ),
+        description=("Batch inference for Network v07 (PyramidPooling3DClassifier) on the Duke Liver Dataset."),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -225,10 +223,7 @@ def parse_args() -> argparse.Namespace:
         "--split",
         type=str,
         default=None,
-        help=(
-            "Comma-separated fold names to infer on (e.g. 'fold_0,fold_1'). "
-            "Omit to infer on the full dataset."
-        ),
+        help=("Comma-separated fold names to infer on (e.g. 'fold_0,fold_1'). Omit to infer on the full dataset."),
     )
     parser.add_argument("--target_depth", type=int, default=64, help="Target depth for 3-D volumes.")
     parser.add_argument("--num_samples", type=int, default=None, help="Cap dataset size (smoke-tests).")
@@ -269,10 +264,7 @@ def main(args: argparse.Namespace) -> None:
     if args.label_csv_path:
         os.environ["LABEL_CSV_PATH"] = args.label_csv_path
 
-    missing = [
-        name for name in ("LOCAL_DATASET_PATH", "LABEL_CSV_PATH")
-        if not os.environ.get(name)
-    ]
+    missing = [name for name in ("LOCAL_DATASET_PATH", "LABEL_CSV_PATH") if not os.environ.get(name)]
     if missing:
         raise ValueError(
             "Missing Duke dataset configuration. Set the environment variables "
@@ -281,18 +273,10 @@ def main(args: argparse.Namespace) -> None:
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    device = (
-        torch.device(f"cuda:{args.gpu}")
-        if args.gpu >= 0 and torch.cuda.is_available()
-        else torch.device("cpu")
-    )
+    device = torch.device(f"cuda:{args.gpu}") if args.gpu >= 0 and torch.cuda.is_available() else torch.device("cpu")
     print(f"Device : {device}")
 
-    split = (
-        [s.strip() for s in args.split.split(",")]
-        if args.split is not None
-        else None
-    )
+    split = [s.strip() for s in args.split.split(",")] if args.split is not None else None
 
     pred_df = run_inference(
         ckpt=args.ckpt,

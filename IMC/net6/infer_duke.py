@@ -77,6 +77,7 @@ def create_inference_dataloader(
         :class:`~IMC.data.duke_dataloader_local.LiverDataset`.
     """
     from IMC.data.duke_dataloader_local import LiverDataset
+
     split = [f"fold_{i}" for i in fold_indices] if fold_indices is not None else None
     dataset = LiverDataset(
         split=split,
@@ -203,17 +204,13 @@ def run_inference(
             # ---- Handle SequenceType_Code_norm with optional RF gate ----
             if rf_model is not None:
                 meta_np = metadata.numpy()
-                rf_probs_batch = np.stack(
-                    [rf_model.predict_proba(row.reshape(1, -1))[0] for row in meta_np]
-                )  # (B, C)
+                rf_probs_batch = np.stack([rf_model.predict_proba(row.reshape(1, -1))[0] for row in meta_np])  # (B, C)
                 rf_probs_t = torch.tensor(rf_probs_batch, dtype=torch.float32, device=device)
                 max_rf_conf = rf_probs_t.max(dim=1).values  # (B,)
                 use_rf = max_rf_conf >= threshold  # (B,)
                 # Approximate RF logits as log(p); clamp to avoid log(0)
                 rf_logits = torch.log(torch.clamp(rf_probs_t, min=1e-8))
-                gated_logits = torch.where(
-                    use_rf.unsqueeze(1), rf_logits, img_logits[seq_idx]
-                )
+                gated_logits = torch.where(use_rf.unsqueeze(1), rf_logits, img_logits[seq_idx])
             else:
                 gated_logits = img_logits[seq_idx]
 
@@ -344,10 +341,7 @@ def main(args: argparse.Namespace) -> None:
     if args.label_csv_path:
         os.environ["LABEL_CSV_PATH"] = args.label_csv_path
 
-    missing = [
-        name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH")
-        if not os.environ.get(name)
-    ]
+    missing = [name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH") if not os.environ.get(name)]
     if missing:
         raise ValueError(
             "Missing Duke dataset configuration. Set the environment variables "
@@ -356,18 +350,10 @@ def main(args: argparse.Namespace) -> None:
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    device = (
-        torch.device(f"cuda:{args.gpu}")
-        if args.gpu >= 0 and torch.cuda.is_available()
-        else torch.device("cpu")
-    )
+    device = torch.device(f"cuda:{args.gpu}") if args.gpu >= 0 and torch.cuda.is_available() else torch.device("cpu")
     print(f"Device : {device}")
 
-    fold_indices = (
-        [int(f.strip()) for f in args.folds.split(",")]
-        if args.folds is not None
-        else None
-    )
+    fold_indices = [int(f.strip()) for f in args.folds.split(",")] if args.folds is not None else None
     if fold_indices is not None:
         print(f"Folds  : {fold_indices}")
     else:

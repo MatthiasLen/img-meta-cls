@@ -6,24 +6,25 @@ from IMC.network04 import (
 )
 import torch.nn as nn
 
+
 def build_model(
-        modality="combined",
-        vanilla_image_classifier=False, 
-        img_enc_backbone="densenet121", 
-        metadata_enc_type="sparse", 
-        imputer_type="contextual",
-        sparse_enc_version="v1", 
-        output_emb_dim=128, 
-        incl_regression=False, 
-        num_classes_dict: dict = None, 
-        metadata_input_dim: int = None, 
-        metadata_embed_dim: int = 128,
-        fusion_module_version: str = "v2",
-        metadata_dropout: bool = False,
-        pre_processors=None,
-        post_processors=None,
-        **kwargs,
-        ) -> nn.Module:
+    modality="combined",
+    vanilla_image_classifier=False,
+    img_enc_backbone="densenet121",
+    metadata_enc_type="sparse",
+    imputer_type="contextual",
+    sparse_enc_version="v1",
+    output_emb_dim=128,
+    incl_regression=False,
+    num_classes_dict: dict = None,
+    metadata_input_dim: int = None,
+    metadata_embed_dim: int = 128,
+    fusion_module_version: str = "v2",
+    metadata_dropout: bool = False,
+    pre_processors=None,
+    post_processors=None,
+    **kwargs,
+) -> nn.Module:
     """Instantiate the correct Network-v04 variant based on ``modality``.
 
     Args:
@@ -93,25 +94,22 @@ def build_model(
             raise ValueError(f"Unknown metadata_enc_type '{metadata_enc_type}'.")
     elif modality == "combined":
         model = MRISequenceClassifier(
-                metadata_input_dim=metadata_input_dim,
-                num_classes_dict=num_classes_dict,
-                img_enc_backbone=img_enc_backbone,
-                incl_regression=incl_regression,
-                metadata_encoder_type=metadata_enc_type,
-                imputer_type=imputer_type,
-                sparse_enc_version=sparse_enc_version,
-                fusion_module_version=fusion_module_version,
-                dropout_metadata=metadata_dropout,
-                scalar_modulation=kwargs.get("scalar_modulation", False),
-                n_channels=kwargs.get("n_channels", 1),
-                learn_missing_embed=kwargs.get("learn_missing_embed", False),
-                pre_processors=pre_processors,
-                post_processors=post_processors,
-            )
-    else:
-        raise ValueError(
-            f"Unknown modality '{modality}'. "
-            "Choose one of: combined, image, metadata."
+            metadata_input_dim=metadata_input_dim,
+            num_classes_dict=num_classes_dict,
+            img_enc_backbone=img_enc_backbone,
+            incl_regression=incl_regression,
+            metadata_encoder_type=metadata_enc_type,
+            imputer_type=imputer_type,
+            sparse_enc_version=sparse_enc_version,
+            fusion_module_version=fusion_module_version,
+            dropout_metadata=metadata_dropout,
+            scalar_modulation=kwargs.get("scalar_modulation", False),
+            n_channels=kwargs.get("n_channels", 1),
+            learn_missing_embed=kwargs.get("learn_missing_embed", False),
+            pre_processors=pre_processors,
+            post_processors=post_processors,
         )
+    else:
+        raise ValueError(f"Unknown modality '{modality}'. Choose one of: combined, image, metadata.")
 
     return model

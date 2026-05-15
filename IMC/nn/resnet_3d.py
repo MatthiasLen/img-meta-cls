@@ -15,6 +15,7 @@ import torch.nn as nn
 
 class ConvBlock3D(nn.Module):
     """Basic 3D convolutional block with Conv3D -> BatchNorm -> GELU."""
+
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
         super().__init__()
         self.conv = nn.Conv3d(in_channels, out_channels, kernel_size, stride, padding, bias=False)
@@ -27,6 +28,7 @@ class ConvBlock3D(nn.Module):
 
 class ResidualBlock3D(nn.Module):
     """3D Residual Block with a skip connection."""
+
     def __init__(self, channels, stride=1):
         super().__init__()
         self.block1 = ConvBlock3D(channels, channels, stride=stride)
@@ -35,8 +37,7 @@ class ResidualBlock3D(nn.Module):
         self.shortcut = nn.Sequential()
         if stride != 1:
             self.shortcut = nn.Sequential(
-                nn.Conv3d(channels, channels, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm3d(channels)
+                nn.Conv3d(channels, channels, kernel_size=1, stride=stride, bias=False), nn.BatchNorm3d(channels)
             )
 
     def forward(self, x):
@@ -56,11 +57,12 @@ class ResNet3D(nn.Module):
         initial_channels: Number of channels in the first convolutional layer.
         block_counts: List of integers specifying the number of residual blocks in each stage.
     """
+
     def __init__(self, in_channels=1, initial_channels=32, block_counts=[2, 2, 2, 2]):
         super().__init__()
         self.in_channels = initial_channels
 
-        self.initial_layer = ConvBlock3D(in_channels, initial_channels, stride=2) # Downsample initially
+        self.initial_layer = ConvBlock3D(in_channels, initial_channels, stride=2)  # Downsample initially
 
         self.layers = nn.ModuleList()
         channels = initial_channels
@@ -88,7 +90,7 @@ class ResNet3D(nn.Module):
         return x
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Test the ResNet3D model
     model = ResNet3D(in_channels=1, initial_channels=16, block_counts=[1, 1, 1])
     print(model)

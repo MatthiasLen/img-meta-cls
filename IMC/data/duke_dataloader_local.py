@@ -36,11 +36,12 @@ from IMC.data.augment import augment
 from IMC.data.dicom_tag_encoding_v2 import encode_dicom_tags_by_version
 from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES, DEFAULT_LABEL_NAMES, SELECTED_FEATURES
 
-logger = logging.getLogger('IMC')
+logger = logging.getLogger("IMC")
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _is_na(value) -> bool:
     """Return True for None, float NaN, or the string 'nan'/'none'."""
@@ -48,9 +49,11 @@ def _is_na(value) -> bool:
         return True
     try:
         import math
+
         return math.isnan(float(value))
     except (TypeError, ValueError):
         return str(value).strip().lower() in ("nan", "none", "")
+
 
 # Configuration constants
 LOCAL_DATASET_PATH = os.getenv("LOCAL_DATASET_PATH", None)
@@ -68,11 +71,11 @@ def _to_posix_path(path_value: str | Path) -> str:
 class LiverDataset(Dataset):
     """
     PyTorch Dataset for loading liver medical imaging data from local filesystem.
-    
-    This dataset handles multi-slice DICOM images with associated metadata and 
+
+    This dataset handles multi-slice DICOM images with associated metadata and
     classification labels. It supports various sampling strategies, data augmentation,
     and handles missing or corrupted data gracefully.
-    
+
     Features:
         - Multi-slice sampling from DICOM series
         - Metadata encoding and integration
@@ -80,7 +83,7 @@ class LiverDataset(Dataset):
         - Train/validation/test split support
         - Missing data handling
         - Local filesystem optimization
-    
+
     Args:
         num_samples: Maximum number of samples to load. If None, loads all available samples.
         n_slices: Number of slices to sample from each DICOM series.
@@ -100,11 +103,11 @@ class LiverDataset(Dataset):
 
     The ``__getitem__`` return value depends on ``is_infer``:
 
-    * **Training** (``is_infer=False``):  
+    * **Training** (``is_infer=False``):
       ``(images, metadata, targets, masks)`` where *images* has shape
       ``(n_slices, H, W)`` and *targets* / *masks* are tuples of tensors,
       one per classification task.
-    * **Inference** (``is_infer=True``):  
+    * **Inference** (``is_infer=True``):
       ``(images, metadata, filepath)``.
 
     Example::
@@ -116,7 +119,7 @@ class LiverDataset(Dataset):
         ... )
         >>> dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
     """
-    
+
     def __init__(
         self,
         num_samples: Optional[int] = 100,
@@ -156,7 +159,7 @@ class LiverDataset(Dataset):
         # Store configuration parameters
         self.num_samples = num_samples
         self.n_slices = n_slices
-        self.img_size = img_size            
+        self.img_size = img_size
         self.label_names = label_names.copy() if label_names is not None else DEFAULT_LABEL_NAMES.copy()
         if exclude_contrast_yn:
             self.label_names.pop("label_Contrast", None)
@@ -181,17 +184,19 @@ class LiverDataset(Dataset):
         # Load and process metadata
         self._reader = DicomImageReader()
         self._load_metadata_and_labels(split)
-        self.num_metadata_features = len(SELECTED_FEATURES) if use_preselected_features else len(self.metadata_df.columns)
-        
+        self.num_metadata_features = (
+            len(SELECTED_FEATURES) if use_preselected_features else len(self.metadata_df.columns)
+        )
+
         logger.info(f"Dataset initialized with {len(self.path_list)} samples")
 
     def _load_metadata_and_labels(self, split: List[str] | None) -> None:
         """
         Load metadata and labels from CSV files and filter by split.
-        
+
         Args:
             split: List of fold names to include in the dataset.
-            
+
         Raises:
             FileNotFoundError: If CSV files are not found.
             ValueError: If no samples remain after filtering.
@@ -200,7 +205,7 @@ class LiverDataset(Dataset):
             # Load labels and metadata from CSV files
             labels_df = pd.read_csv(self.label_csv_path)
             logger.info(f"Loaded {len(labels_df)} samples from label CSV")
-            
+
             # Encode metadata using DICOM tag encoding
             if self.metadata_path and os.path.exists(self.metadata_path) and self.metadata_path.endswith(".parquet"):
                 metadata_df = pd.read_parquet(self.metadata_path)
@@ -217,33 +222,31 @@ class LiverDataset(Dataset):
             if self.use_preselected_features:
                 logger.info("Using preselected features for metadata")
                 metadata_df = metadata_df[SELECTED_FEATURES]
-            
+
             # Filter by specified splits
             if split is not None:
                 labels_df = labels_df[labels_df["split"].isin(split)]
                 logger.info(f"Samples after filtering for split {split}: {len(labels_df)}")
-            
+
             if len(labels_df) == 0:
                 raise ValueError(f"No samples found for splits: {split}")
-            
+
             # Populate path list and labels
             for filepath, row in labels_df.iterrows():
                 self.path_list.append(filepath)
                 self.labels.append(row.to_dict())
                 uid = row.get("series_instance_uid", None)
-                self.uid_list.append(
-                    str(uid) if uid is not None and not _is_na(uid) else None
-                )
-            
+                self.uid_list.append(str(uid) if uid is not None and not _is_na(uid) else None)
+
             # Store metadata DataFrame for later use
             self.metadata_df = metadata_df
-            
+
             # Update num_samples based on available data
             if self.num_samples is None:
                 self.num_samples = len(self.path_list)
             else:
                 self.num_samples = min(self.num_samples, len(self.path_list))
-                
+
         except FileNotFoundError as e:
             raise FileNotFoundError(f"Required CSV file not found: {e}")
         except Exception as e:
@@ -274,19 +277,17 @@ class LiverDataset(Dataset):
     def get_n_labels(self) -> Dict[str, int]:
         """
         Get the number of classes for each label category.
-        
+
         Returns:
             Dictionary mapping label names to their number of classes.
-            
+
         Example:
             >>> dataset.get_n_labels()
             {'label_SequenceType': 11, 'label_FatSat': 3, ...}
         """
         return {label_name: len(classes) for label_name, classes in self.label_names.items()}
 
-    def get_bucket_filelist(
-        self, path_dicom_folder: str, series_uid: Optional[str] = None
-    ) -> List[Path]:
+    def get_bucket_filelist(self, path_dicom_folder: str, series_uid: Optional[str] = None) -> List[Path]:
         """
         Get a sorted list of DICOM files in the specified folder.
 
@@ -348,7 +349,7 @@ class LiverDataset(Dataset):
         # Calculate slice indices to sample
         num_slices = len(slice_filenames)
         slice_indices = self._calculate_slice_indices(num_slices, n_images, sampling_type)
-        
+
         # Load and process each slice
         images = []
         for slice_idx in slice_indices:
@@ -364,56 +365,61 @@ class LiverDataset(Dataset):
 
             # Apply data augmentation
             image = augment(image, self.augment_conf)
-            
+
             # Convert to tensor and add channel dimension
-            images.append(torch.tensor(image.copy(), dtype=torch.float32)) # (H, W)
+            images.append(torch.tensor(image.copy(), dtype=torch.float32))  # (H, W)
 
         # Load metadata (individual dicom files or aggregated)
         if self.aggregated_metadata:
             metadata_key = self._normalize_dataset_index(path_dicom_folder)
             metadata = self.metadata_df.loc[metadata_key].to_numpy()
-            metadata = torch.tensor(metadata, dtype=torch.float32) # (D,)
+            metadata = torch.tensor(metadata, dtype=torch.float32)  # (D,)
             metadata = metadata.unsqueeze(0).repeat(len(images), 1)  # (N, D)
         else:
             metadata = []
             for slice_idx in slice_indices:
                 if slice_idx is None:
-                    m = torch.full((self.num_metadata_features,), torch.nan, dtype=torch.float32) if not self.use_preselected_features else torch.full((len(SELECTED_FEATURES),), torch.nan, dtype=torch.float32)
+                    m = (
+                        torch.full((self.num_metadata_features,), torch.nan, dtype=torch.float32)
+                        if not self.use_preselected_features
+                        else torch.full((len(SELECTED_FEATURES),), torch.nan, dtype=torch.float32)
+                    )
                     metadata.append(m)
                     continue
                 try:
                     metadata_key = self._normalize_dataset_index(slice_filenames[slice_idx])
                     m = self.metadata_df.loc[metadata_key].to_numpy()
                     m = torch.tensor(m, dtype=torch.float32)
-                except:
+                except Exception:
                     logger.error(f"Metadata not found for {slice_filenames[slice_idx]}, using NaNs")
-                    m = torch.full((self.num_metadata_features,), torch.nan, dtype=torch.float32) if not self.use_preselected_features else torch.full((len(SELECTED_FEATURES),), torch.nan, dtype=torch.float32)
+                    m = (
+                        torch.full((self.num_metadata_features,), torch.nan, dtype=torch.float32)
+                        if not self.use_preselected_features
+                        else torch.full((len(SELECTED_FEATURES),), torch.nan, dtype=torch.float32)
+                    )
                 metadata.append(m)
         # Stack all slices into a single tensor
         return torch.stack(images, dim=0), torch.stack(metadata, dim=0)  # (N, H, W), (N, D)
 
-    def _calculate_slice_indices(
-        self, 
-        num_slices: int, 
-        n_images: int, 
-        sampling_type: str
-    ) -> List[Union[int, None]]:
+    def _calculate_slice_indices(self, num_slices: int, n_images: int, sampling_type: str) -> List[Union[int, None]]:
         """
         Calculate which slice indices to sample from a DICOM series.
-        
+
         Args:
             num_slices: Total number of slices in the series.
             n_images: Number of slices to sample.
             sampling_type: Sampling strategy ("random" or "equidistant").
-            
+
         Returns:
             List of slice indices to load. None values indicate missing slices.
         """
         return calculate_slice_indices(num_slices, n_images, sampling_type)
 
-    def __getitem__(self, idx: int) -> Union[
+    def __getitem__(
+        self, idx: int
+    ) -> Union[
         Tuple[torch.Tensor, torch.Tensor, str],
-        Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]
+        Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]],
     ]:
         """
         Get a single sample from the dataset.
@@ -446,58 +452,55 @@ class LiverDataset(Dataset):
             n_images=self.n_slices,
             series_uid=self.uid_list[idx],
         )
-    
+
         if self.is_infer:
             uid = self.uid_list[idx] if self.uid_list[idx] is not None else ""
             return images, metadata, self.path_list[idx], uid
-        
+
         # Process classification labels
         targets, masks = self._process_labels(idx)
-        
+
         return images, metadata, targets, masks
 
     def _process_labels(self, idx: int) -> Tuple[Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]:
         """
         Process classification labels for the given sample.
-        
+
         Args:
             idx: Sample index.
-            
+
         Returns:
             Tuple containing:
                 - targets: Tuple of label indices for each classification task
                 - masks: Tuple of boolean masks for valid labels
-                
+
         Raises:
             Exception: If required labels are missing.
         """
         label_indices = {}
-        
+
         for label_class in self.label_names:
             if label_class not in self.labels[idx]:
                 raise Exception(f"Missing label: {label_class} for sample {idx}")
-            
+
             label_value = self.labels[idx][label_class]
-            
+
             if label_value in self.label_names[label_class]:
                 label_indices[label_class] = self.label_names[label_class].index(label_value)
             else:
                 # Handle unknown label values
                 logger.warning(f"Unknown label value '{label_value}' for {label_class}, using -1")
                 raise ValueError(f"Unknown label value '{label_value}' for {label_class}")
-        
+
         # Create target tensors and masks
-        targets = tuple(
-            torch.tensor(label_indices[label_class]) 
-            for label_class in self.label_names.keys()
-        )
-        
+        targets = tuple(torch.tensor(label_indices[label_class]) for label_class in self.label_names.keys())
+
         # Masks indicate valid labels (not "na")
         masks = tuple(
             torch.tensor(
-            label_indices[label_class] != self.label_names[label_class].index("na")
-            if "na" in self.label_names[label_class]
-            else True
+                label_indices[label_class] != self.label_names[label_class].index("na")
+                if "na" in self.label_names[label_class]
+                else True
             )
             for label_class in self.label_names.keys()
         )
@@ -514,7 +517,7 @@ def get_train_dataloader(
 ) -> DataLoader:
     """
     Create a DataLoader for training data.
-    
+
     Args:
         batch_size: Number of samples per batch.
         num_workers: Number of worker processes for data loading.
@@ -522,16 +525,11 @@ def get_train_dataloader(
         num_samples: Maximum number of samples to load (None for all).
         folder_split: List of fold names to include in training set.
         ds_kwargs: additional keywords to the dataset
-        
+
     Returns:
         Configured DataLoader for training.
     """
-    dataset = LiverDataset(
-        split=folder_split, 
-        num_samples=num_samples, 
-        augment_conf="NONE2D",
-        **ds_kwargs
-    )
+    dataset = LiverDataset(split=folder_split, num_samples=num_samples, augment_conf="NONE2D", **ds_kwargs)
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -550,7 +548,7 @@ def get_valid_dataloader(
 ) -> DataLoader:
     """
     Create a DataLoader for validation data.
-    
+
     Args:
         batch_size: Number of samples per batch.
         num_workers: Number of worker processes for data loading.
@@ -561,12 +559,7 @@ def get_valid_dataloader(
     Returns:
         Configured DataLoader for validation.
     """
-    dataset = LiverDataset(
-        split=folder_split, 
-        num_samples=num_samples, 
-        augment_conf="NONE2D",
-        **ds_kwargs
-    )
+    dataset = LiverDataset(split=folder_split, num_samples=num_samples, augment_conf="NONE2D", **ds_kwargs)
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -585,7 +578,7 @@ def get_test_dataloader(
 ) -> DataLoader:
     """
     Create a DataLoader for test data.
-    
+
     Args:
         batch_size: Number of samples per batch.
         num_workers: Number of worker processes for data loading.
@@ -596,12 +589,7 @@ def get_test_dataloader(
     Returns:
         Configured DataLoader for testing.
     """
-    dataset = LiverDataset(
-        split=folder_split, 
-        num_samples=num_samples, 
-        augment_conf="NONE2D",
-        **ds_kwargs
-    )
+    dataset = LiverDataset(split=folder_split, num_samples=num_samples, augment_conf="NONE2D", **ds_kwargs)
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -621,9 +609,9 @@ def get_infer_dataloader(
 ) -> DataLoader:
     """
     Create a DataLoader for inference (prediction) data.
-    
+
     This DataLoader returns only images and metadata, without labels.
-    
+
     Args:
         batch_size: Number of samples per batch.
         num_workers: Number of worker processes for data loading.
@@ -641,7 +629,7 @@ def get_infer_dataloader(
         is_infer=True,
         augment_conf="NONE2D",
         label_names=label_names,
-        **ds_kwargs
+        **ds_kwargs,
     )
     return DataLoader(
         dataset,
@@ -656,9 +644,18 @@ if __name__ == "__main__":
     # Demonstrates how to create a dataset, inspect label info, and iterate batches.
     print("LiverDataset Demo")
     print("=" * 50)
-    
+
     # Create a dataset instance
-    dataset = LiverDataset(num_samples=200, n_slices=5, is_infer=False, aggregated_metadata=False, use_preselected_features=True, label_names=DUKE_ORIGINAL_LABEL_NAMES, sampling_type="random", augment_conf="DEFAULT2D")
+    dataset = LiverDataset(
+        num_samples=200,
+        n_slices=5,
+        is_infer=False,
+        aggregated_metadata=False,
+        use_preselected_features=True,
+        label_names=DUKE_ORIGINAL_LABEL_NAMES,
+        sampling_type="random",
+        augment_conf="DEFAULT2D",
+    )
     dataloader = DataLoader(dataset, batch_size=8, shuffle=True)
 
     # Display label information
@@ -667,7 +664,7 @@ if __name__ == "__main__":
     print(f"Dataset size: {len(dataset)} samples")
     print(f"Number of slices per sample: {dataset.n_slices}")
     print()
-    
+
     # Process a few batches
     print("Processing batches:")
     for batch_idx, batch_data in enumerate(dataloader):

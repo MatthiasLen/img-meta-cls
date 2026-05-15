@@ -12,6 +12,7 @@
     ``IMC/data/configs/metadata_encoding_v2_slicewise.yaml`` returns 119 features per slice, matching the output of ``generate_slicewise_metadata_vector``.
     See ``IMC/data/metadata/README.md`` for full documentation.
 """
+
 import logging
 import os
 from ast import literal_eval
@@ -97,7 +98,7 @@ def check_dicom_tag_types(dicom_tags: Dict[str, Any], selected_dicom_tags: Dict[
             if tag_type == List[float]:
                 try:
                     dicom_tags[tag_name] = [float(x) for x in dicom_tags[tag_name]]
-                except:
+                except Exception:
                     log.warning(
                         f"DICOM tag {tag_name} with value {dicom_tags[tag_name]} could not be converted to expected type {tag_type}"
                     )
@@ -121,8 +122,8 @@ def check_dicom_tag_types(dicom_tags: Dict[str, Any], selected_dicom_tags: Dict[
                         f"DICOM tag {tag_name} with value {dicom_tags[tag_name]} could not be converted to expected type {tag_type}"
                     )
                     dicom_tags[tag_name] = None  # or some default value
-                
-                except:
+
+                except Exception:
                     log.warning(
                         f"DICOM tag {tag_name} with value {dicom_tags[tag_name]} could not be converted to expected type {tag_type}"
                     )
@@ -137,7 +138,7 @@ def check_dicom_tag_types(dicom_tags: Dict[str, Any], selected_dicom_tags: Dict[
                             f"DICOM tag {tag_name} with value {dicom_tags[tag_name]} could not be converted to expected type {tag_type}"
                         )
                         dicom_tags[tag_name] = None  # or some default value
-                    except:
+                    except Exception:
                         log.warning(
                             f"DICOM tag {tag_name} with value {dicom_tags[tag_name]} could not be converted to expected type {tag_type}"
                         )

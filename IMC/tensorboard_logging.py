@@ -5,8 +5,10 @@ These functions integrate with the existing logging system in helper.py.
 
 import os
 from datetime import datetime
+
 try:
     from torch.utils.tensorboard import SummaryWriter
+
     TENSORBOARD_AVAILABLE = True
 except ImportError:
     SummaryWriter = None
@@ -102,8 +104,8 @@ class TensorBoardLogger:
         """Log current learning rate."""
         if self.enabled and self.writer:
             for i, param_group in enumerate(optimizer.param_groups):
-                lr = param_group['lr']
-                self.writer.add_scalar(f'Learning_Rate/group_{i}', lr, step)
+                lr = param_group["lr"]
+                self.writer.add_scalar(f"Learning_Rate/group_{i}", lr, step)
 
     def log_gradient_norms(self, model, step):
         """Log gradient norms for model parameters."""
@@ -118,24 +120,24 @@ class TensorBoardLogger:
                     param_count += 1
 
                     # Log individual layer gradient norms (only for key layers to avoid clutter)
-                    if any(key in name for key in ['encoder', 'decoder', 'attention', 'fc', 'classifier']):
-                        self.writer.add_scalar(f'Gradients/{name}', param_norm, step)
+                    if any(key in name for key in ["encoder", "decoder", "attention", "fc", "classifier"]):
+                        self.writer.add_scalar(f"Gradients/{name}", param_norm, step)
 
             if param_count > 0:
-                total_norm = total_norm ** (1. / 2)
-                self.writer.add_scalar('Gradients/total_norm', total_norm, step)
+                total_norm = total_norm ** (1.0 / 2)
+                self.writer.add_scalar("Gradients/total_norm", total_norm, step)
 
     def log_model_weights(self, model, step):
         """Log model weight histograms."""
         if self.enabled and self.writer:
             for name, param in model.named_parameters():
-                if param.requires_grad and any(key in name for key in ['weight', 'bias']):
-                    self.writer.add_histogram(f'Weights/{name}', param, step)
+                if param.requires_grad and any(key in name for key in ["weight", "bias"]):
+                    self.writer.add_histogram(f"Weights/{name}", param, step)
 
     def log_amp_scaler_info(self, scaler, step):
         """Log automatic mixed precision scaler information."""
         if self.enabled and self.writer:
-            self.writer.add_scalar('Training/AMP_Scale', scaler.get_scale(), step)
+            self.writer.add_scalar("Training/AMP_Scale", scaler.get_scale(), step)
 
     def flush(self):
         """Flush pending logs to disk."""
@@ -154,10 +156,7 @@ class TensorBoardLogger:
         self.close()
 
 
-def setup_combined_logging(experiment_name="training",
-                         log_dir="./logs",
-                         tb_log_dir="./tb_logs",
-                         use_timestamp=True):
+def setup_combined_logging(experiment_name="training", log_dir="./logs", tb_log_dir="./tb_logs", use_timestamp=True):
     """
     Setup both file logging and TensorBoard logging together.
 
@@ -173,25 +172,26 @@ def setup_combined_logging(experiment_name="training",
     from IMC.helper import setup_experiment_logging
 
     # Setup file logging
-    logger, log_path = setup_experiment_logging(
-        experiment_name=experiment_name,
-        log_dir=log_dir
-    )
+    logger, log_path = setup_experiment_logging(experiment_name=experiment_name, log_dir=log_dir)
 
     # Setup TensorBoard logging
-    tb_logger = TensorBoardLogger(
-        log_dir=tb_log_dir,
-        experiment_name=experiment_name,
-        use_timestamp=use_timestamp
-    )
+    tb_logger = TensorBoardLogger(log_dir=tb_log_dir, experiment_name=experiment_name, use_timestamp=use_timestamp)
 
     return logger, log_path, tb_logger
 
 
-def log_training_metrics(tb_logger, epoch, train_loss, val_loss,
-                        train_accuracies=None, val_accuracies=None,
-                        individual_losses=None, optimizer=None, model=None,
-                        scaler=None):
+def log_training_metrics(
+    tb_logger,
+    epoch,
+    train_loss,
+    val_loss,
+    train_accuracies=None,
+    val_accuracies=None,
+    individual_losses=None,
+    optimizer=None,
+    model=None,
+    scaler=None,
+):
     """
     Log training metrics to TensorBoard.
 
@@ -211,37 +211,34 @@ def log_training_metrics(tb_logger, epoch, train_loss, val_loss,
         return
 
     # Log main losses
-    tb_logger.log_scalars('Loss/Epoch', {
-        'Train': train_loss,
-        'Validation': val_loss
-    }, epoch)
+    tb_logger.log_scalars("Loss/Epoch", {"Train": train_loss, "Validation": val_loss}, epoch)
 
     # Log individual task accuracies
     if train_accuracies is not None:
         accuracy_dict = {}
         for i, acc in enumerate(train_accuracies):
-            accuracy_dict[f'Task_{i}'] = acc
-        tb_logger.log_scalars('Accuracy/Train', accuracy_dict, epoch)
+            accuracy_dict[f"Task_{i}"] = acc
+        tb_logger.log_scalars("Accuracy/Train", accuracy_dict, epoch)
 
     if val_accuracies is not None:
         accuracy_dict = {}
         for i, acc in enumerate(val_accuracies):
-            accuracy_dict[f'Task_{i}'] = acc
-        tb_logger.log_scalars('Accuracy/Validation', accuracy_dict, epoch)
+            accuracy_dict[f"Task_{i}"] = acc
+        tb_logger.log_scalars("Accuracy/Validation", accuracy_dict, epoch)
 
     # Log individual task losses
     if individual_losses is not None:
-        if 'train' in individual_losses:
+        if "train" in individual_losses:
             loss_dict = {}
-            for i, loss in enumerate(individual_losses['train']):
-                loss_dict[f'Task_{i}'] = loss
-            tb_logger.log_scalars('Loss/Train_Tasks', loss_dict, epoch)
+            for i, loss in enumerate(individual_losses["train"]):
+                loss_dict[f"Task_{i}"] = loss
+            tb_logger.log_scalars("Loss/Train_Tasks", loss_dict, epoch)
 
-        if 'val' in individual_losses:
+        if "val" in individual_losses:
             loss_dict = {}
-            for i, loss in enumerate(individual_losses['val']):
-                loss_dict[f'Task_{i}'] = loss
-            tb_logger.log_scalars('Loss/Val_Tasks', loss_dict, epoch)
+            for i, loss in enumerate(individual_losses["val"]):
+                loss_dict[f"Task_{i}"] = loss
+            tb_logger.log_scalars("Loss/Val_Tasks", loss_dict, epoch)
 
     # Log learning rate
     if optimizer is not None:
@@ -262,8 +259,9 @@ def log_training_metrics(tb_logger, epoch, train_loss, val_loss,
     tb_logger.flush()
 
 
-def log_batch_metrics(tb_logger, batch_idx, total_batches, epoch, loss,
-                     individual_losses=None, accuracies=None, lr=None, amp_scale=None):
+def log_batch_metrics(
+    tb_logger, batch_idx, total_batches, epoch, loss, individual_losses=None, accuracies=None, lr=None, amp_scale=None
+):
     """
     Log batch-level metrics during training.
 
@@ -285,25 +283,25 @@ def log_batch_metrics(tb_logger, batch_idx, total_batches, epoch, loss,
     global_step = epoch * total_batches + batch_idx
 
     # Log batch loss
-    tb_logger.log_scalar('Loss/Batch', loss, global_step)
+    tb_logger.log_scalar("Loss/Batch", loss, global_step)
 
     # Log individual task losses
     if individual_losses is not None:
         for i, task_loss in enumerate(individual_losses):
-            tb_logger.log_scalar(f'Loss/Batch_Task_{i}', task_loss, global_step)
+            tb_logger.log_scalar(f"Loss/Batch_Task_{i}", task_loss, global_step)
 
     # Log batch accuracies
     if accuracies is not None:
         for i, acc in enumerate(accuracies):
-            tb_logger.log_scalar(f'Accuracy/Batch_Task_{i}', acc, global_step)
+            tb_logger.log_scalar(f"Accuracy/Batch_Task_{i}", acc, global_step)
 
     # Log learning rate
     if lr is not None:
-        tb_logger.log_scalar('Learning_Rate/Batch', lr, global_step)
+        tb_logger.log_scalar("Learning_Rate/Batch", lr, global_step)
 
     # Log AMP scale
     if amp_scale is not None:
-        tb_logger.log_scalar('Training/AMP_Scale_Batch', amp_scale, global_step)
+        tb_logger.log_scalar("Training/AMP_Scale_Batch", amp_scale, global_step)
 
     # Flush every few batches to see updates
     if batch_idx % 10 == 0:

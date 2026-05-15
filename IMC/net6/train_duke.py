@@ -272,10 +272,7 @@ def _configure_dataset_env(args: argparse.Namespace) -> None:
     if args.label_csv_path:
         os.environ["LABEL_CSV_PATH"] = args.label_csv_path
 
-    missing = [
-        name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH")
-        if not os.environ.get(name)
-    ]
+    missing = [name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH") if not os.environ.get(name)]
     if missing:
         raise ValueError(
             "Missing Duke dataset configuration. Set the environment variables "
@@ -339,10 +336,7 @@ def parse_args() -> argparse.Namespace:
         "--folds",
         type=str,
         default=None,
-        help=(
-            "Comma-separated list of fold indices to run (e.g. '0,1,2'). "
-            "Defaults to all 5 folds."
-        ),
+        help=("Comma-separated list of fold indices to run (e.g. '0,1,2'). Defaults to all 5 folds."),
     )
     parser.add_argument(
         "--num_samples",
@@ -393,11 +387,7 @@ def main(args: argparse.Namespace) -> None:
     _configure_dataset_env(args)
 
     n_folds = 5
-    folds_to_run = (
-        [int(f.strip()) for f in args.folds.split(",")]
-        if args.folds is not None
-        else list(range(n_folds))
-    )
+    folds_to_run = [int(f.strip()) for f in args.folds.split(",")] if args.folds is not None else list(range(n_folds))
     for fold_idx in folds_to_run:
         if not (0 <= fold_idx < n_folds):
             raise ValueError(f"Fold index {fold_idx} is out of range [0, {n_folds - 1}].")
@@ -406,11 +396,7 @@ def main(args: argparse.Namespace) -> None:
     base_log_dir = os.path.join(args.log_dir, f"{timestamp}_net6_duke_5fold")
     os.makedirs(base_log_dir, exist_ok=True)
 
-    device = (
-        torch.device(f"cuda:{args.gpu}")
-        if args.gpu >= 0 and torch.cuda.is_available()
-        else torch.device("cpu")
-    )
+    device = torch.device(f"cuda:{args.gpu}") if args.gpu >= 0 and torch.cuda.is_available() else torch.device("cpu")
 
     print("=" * 80)
     print("Training PixelOnlyModel (net6) on Duke  –  5-fold CV")
@@ -479,6 +465,7 @@ def main(args: argparse.Namespace) -> None:
                 label_names=DUKE_ORIGINAL_LABEL_NAMES,
             )
             from IMC.data.duke_dataloader_local import LiverDataset
+
             train_ds = LiverDataset(split=[f"fold_{f}" for f in train_folds], **_ds_kwargs)
             val_ds = LiverDataset(split=[f"fold_{val_fold}"], **_ds_kwargs)
             test_ds = LiverDataset(split=[f"fold_{test_fold}"], **_ds_kwargs)
@@ -516,7 +503,7 @@ def main(args: argparse.Namespace) -> None:
             optimizer = create_optimizer(model, lr=args.lr, weight_decay=args.weight_decay)
             scheduler = get_scheduler(optimizer, warmup_steps=warmup_steps, total_steps=total_steps)
             criterion = _SingleTaskFocalLoss(alpha=1.0, gamma=args.focal_gamma)
-            scaler = torch.amp.GradScaler("cuda", init_scale=2 ** 8)
+            scaler = torch.amp.GradScaler("cuda", init_scale=2**8)
 
             # ---- Trainer -----------------------------------------
             trainer = Trainer(

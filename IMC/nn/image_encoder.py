@@ -4,9 +4,19 @@ import torch
 import torch.nn as nn
 from torchvision import models
 from torchvision.models.resnet import ResNet50_Weights
-from torchvision.models.densenet import DenseNet121_Weights, DenseNet161_Weights, DenseNet169_Weights, DenseNet201_Weights
-from torchvision.models.efficientnet import EfficientNet_V2_L_Weights, EfficientNet_V2_M_Weights, EfficientNet_V2_S_Weights
+from torchvision.models.densenet import (
+    DenseNet121_Weights,
+    DenseNet161_Weights,
+    DenseNet169_Weights,
+    DenseNet201_Weights,
+)
+from torchvision.models.efficientnet import (
+    EfficientNet_V2_L_Weights,
+    EfficientNet_V2_M_Weights,
+    EfficientNet_V2_S_Weights,
+)
 import torch.nn.init as init
+
 
 class MultiSliceImageEncoder(nn.Module):
     """
@@ -66,10 +76,10 @@ class MultiSliceImageEncoder(nn.Module):
     def _get_backbone(self, backbone_name: str, pretrained: bool):
         """
         Loads and configures the specified CNN backbone architecture.
-        
+
         This method initializes the backbone network and extracts the feature dimension.
         It removes the final classification layer to expose the convolutional feature maps.
-        
+
         Supported Backbones:
         - DenseNet family: densenet121, densenet161, densenet169, densenet201
           Uses dense connections between layers for improved gradient flow.
@@ -86,7 +96,7 @@ class MultiSliceImageEncoder(nn.Module):
         Args:
             backbone_name (str): Name of the backbone architecture to load.
             pretrained (bool): If True, loads weights pretrained on ImageNet or other large datasets.
-        
+
         Side Effects:
             - Sets self.cnn to the loaded backbone (without final classification layer)
             - Sets self.slice_feat_dim to the feature dimension of the backbone
@@ -144,13 +154,21 @@ class MultiSliceImageEncoder(nn.Module):
             # EfficientNet B-series: Compound scaling of depth, width, and resolution
             # Balances network dimensions for optimal performance
             if backbone_name == "efficientnet_b0":
-                self.cnn = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT if pretrained else None)
+                self.cnn = models.efficientnet_b0(
+                    weights=models.EfficientNet_B0_Weights.DEFAULT if pretrained else None
+                )
             elif backbone_name == "efficientnet_b1":
-                self.cnn = models.efficientnet_b1(weights=models.EfficientNet_B1_Weights.DEFAULT if pretrained else None)
+                self.cnn = models.efficientnet_b1(
+                    weights=models.EfficientNet_B1_Weights.DEFAULT if pretrained else None
+                )
             elif backbone_name == "efficientnet_b2":
-                self.cnn = models.efficientnet_b2(weights=models.EfficientNet_B2_Weights.DEFAULT if pretrained else None)
+                self.cnn = models.efficientnet_b2(
+                    weights=models.EfficientNet_B2_Weights.DEFAULT if pretrained else None
+                )
             elif backbone_name == "efficientnet_b3":
-                self.cnn = models.efficientnet_b3(weights=models.EfficientNet_B3_Weights.DEFAULT if pretrained else None)
+                self.cnn = models.efficientnet_b3(
+                    weights=models.EfficientNet_B3_Weights.DEFAULT if pretrained else None
+                )
             else:
                 raise ValueError(f"Unsupported efficientnet_b backbone: {backbone_name}")
             self.slice_feat_dim = self.cnn.classifier[1].in_features
@@ -160,13 +178,12 @@ class MultiSliceImageEncoder(nn.Module):
             # DINOv3: Self-supervised vision transformers
             # Trained with self-distillation without labels
             import torch.hub
+
             repo_dir = os.environ.get("IMC_DINOV3_REPO")
             weights_dir = os.environ.get("IMC_DINOV3_WEIGHTS_DIR")
 
             if not repo_dir:
-                raise ValueError(
-                    "DINOv3 backbones require IMC_DINOV3_REPO to point to a local dinov3 checkout."
-                )
+                raise ValueError("DINOv3 backbones require IMC_DINOV3_REPO to point to a local dinov3 checkout.")
 
             if pretrained and not weights_dir:
                 raise ValueError(
@@ -175,16 +192,22 @@ class MultiSliceImageEncoder(nn.Module):
                 )
 
             if backbone_name == "dinov3_vits16":
-                weights_path = os.path.join(weights_dir, "dinov3_vits16_pretrain_lvd1689m-08c60483.pth") if pretrained else None
-                self.cnn = torch.hub.load(repo_dir, 'dinov3_vits16', source='local', weights=weights_path)
+                weights_path = (
+                    os.path.join(weights_dir, "dinov3_vits16_pretrain_lvd1689m-08c60483.pth") if pretrained else None
+                )
+                self.cnn = torch.hub.load(repo_dir, "dinov3_vits16", source="local", weights=weights_path)
                 self.slice_feat_dim = 384
             elif backbone_name == "dinov3_vitb16":
-                weights_path = os.path.join(weights_dir, "dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth") if pretrained else None
-                self.cnn = torch.hub.load(repo_dir, 'dinov3_vitb16', source='local', weights=weights_path)
+                weights_path = (
+                    os.path.join(weights_dir, "dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth") if pretrained else None
+                )
+                self.cnn = torch.hub.load(repo_dir, "dinov3_vitb16", source="local", weights=weights_path)
                 self.slice_feat_dim = 768
             elif backbone_name == "dinov3_vitl16":
-                weights_path = os.path.join(weights_dir, "dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth") if pretrained else None
-                self.cnn = torch.hub.load(repo_dir, 'dinov3_vitl16', source='local', weights=weights_path)
+                weights_path = (
+                    os.path.join(weights_dir, "dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth") if pretrained else None
+                )
+                self.cnn = torch.hub.load(repo_dir, "dinov3_vitl16", source="local", weights=weights_path)
                 self.slice_feat_dim = 1024
             else:
                 raise ValueError(f"Unsupported DINOv3 backbone: {backbone_name}")
@@ -200,20 +223,20 @@ class MultiSliceImageEncoder(nn.Module):
     def _adapt_input_channels(self, n_channels: int):
         """
         Adapts the first convolutional layer to handle a different number of input channels.
-        
+
         This is crucial for medical imaging where:
         - Grayscale images have 1 channel (unlike RGB with 3 channels)
         - Some modalities may have multiple channels (e.g., multi-echo, multi-contrast)
-        
+
         The adaptation preserves pretrained knowledge by:
         - For 1-channel input: Averaging the RGB weights across the channel dimension
         - For other inputs: Initializing with Xavier uniform (random but scaled appropriately)
-        
+
         This approach allows transfer learning from ImageNet (RGB) to medical images (often grayscale).
 
         Args:
             n_channels (int): The desired number of input channels (e.g., 1 for grayscale).
-        
+
         Side Effects:
             Modifies the first convolutional layer of self.cnn to accept n_channels inputs.
         """
@@ -223,54 +246,68 @@ class MultiSliceImageEncoder(nn.Module):
                 # Save pretrained weights before modifying the layer
                 old_weights = conv_layer.weight.data.clone()
                 # Create new conv layer with desired number of input channels
-                self.cnn[0].conv0 = nn.Conv2d(n_channels, conv_layer.out_channels, kernel_size=conv_layer.kernel_size, stride=conv_layer.stride, padding=conv_layer.padding, bias=False)
+                self.cnn[0].conv0 = nn.Conv2d(
+                    n_channels,
+                    conv_layer.out_channels,
+                    kernel_size=conv_layer.kernel_size,
+                    stride=conv_layer.stride,
+                    padding=conv_layer.padding,
+                    bias=False,
+                )
                 if n_channels == 1:
                     # For grayscale: average the RGB weights to preserve learned features
                     self.cnn[0].conv0.weight.data = old_weights.mean(dim=1, keepdim=True)
                 else:
                     # For other channel counts: random initialization
                     init.xavier_uniform_(self.cnn[0].conv0.weight)
-                    
+
         elif self.backbone.startswith("resnet"):
             conv_layer = self.cnn[0]
             if conv_layer.in_channels != n_channels:
                 old_weights = conv_layer.weight.data.clone()
-                self.cnn[0] = nn.Conv2d(n_channels, conv_layer.out_channels, kernel_size=conv_layer.kernel_size, stride=conv_layer.stride, padding=conv_layer.padding, bias=False)
+                self.cnn[0] = nn.Conv2d(
+                    n_channels,
+                    conv_layer.out_channels,
+                    kernel_size=conv_layer.kernel_size,
+                    stride=conv_layer.stride,
+                    padding=conv_layer.padding,
+                    bias=False,
+                )
                 if n_channels == 1:
                     # For grayscale: average the RGB weights
                     self.cnn[0].weight.data = old_weights.mean(dim=1, keepdim=True)
                 else:
                     init.xavier_uniform_(self.cnn[0].weight)
         else:
-            # TODO : 
+            # TODO :
             print("WARNING: Currently selected backbone type not supported by _adapt_input_channels!")
-        
+
     def get_feature_dimension(self) -> int:
         """
         Get the dimensionality of the feature vectors produced by this encoder.
-        
+
         Returns:
             int: Feature dimension (e.g., 1024 for DenseNet121, 2048 for ResNet50)
         """
         return self.slice_feat_dim
-    
+
     def get_intermediate_outputs(self, x: torch.Tensor, layer_names: list) -> dict:
         """
         Extract feature maps from intermediate layers of the backbone.
-        
+
         This is useful for:
         - Multi-scale feature fusion (combining features from different depths)
         - Feature visualization and analysis
         - Debugging and understanding what the network learns
         - Skip connections in encoder-decoder architectures
-        
+
         Note: Currently only implemented for DenseNet backbones.
 
         Args:
             x (torch.Tensor): Input tensor of shape (B, N_slices, H, W)
             layer_names (list): List of layer names to extract outputs from.
                 These should match the named children of self.cnn[0].
-                
+
         Returns:
             dict: Dictionary mapping layer names to their outputs, with each output
                 having shape (B, N_slices, feature_dim) after global average pooling.
@@ -279,7 +316,7 @@ class MultiSliceImageEncoder(nn.Module):
         B, N, H, W = x.shape
         # Treat each slice as a separate sample in the batch
         x = x.view(B * N, 1, H, W)
-        x_temp = x 
+        x_temp = x
         # Forward through layers, extracting specified intermediate outputs
         for name, module in self.cnn[0].named_children():
             x_temp = module(x_temp)
@@ -295,18 +332,17 @@ class MultiSliceImageEncoder(nn.Module):
 
         return outputs
 
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass to encode multi-slice medical images.
-        
+
         Processing Pipeline:
         1. Reshape: Flatten batch and slice dimensions (B, N, H, W) -> (B*N, 1, H, W)
         2. Channel Expansion: For certain backbones, repeat grayscale to RGB (1 -> 3 channels)
         3. Backbone Forward: Extract convolutional features
         4. Global Pooling: If output is a feature map (4D), apply adaptive average pooling
         5. Reshape: Reorganize to (B, N, feature_dim) to maintain slice structure
-        
+
         The slice structure is preserved in the output, allowing downstream models to:
         - Apply temporal/sequential modeling (e.g., with transformers or RNNs)
         - Perform attention-based fusion across slices

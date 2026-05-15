@@ -45,7 +45,8 @@ from IMC.nn.multi_task_head import MultiTaskHead
 from IMC.nn.pyramid_pooling_3d import PyramidPooling3D
 from IMC.nn.resnet_3d import ResNet3D
 
-logger = logging.getLogger('IMC')
+logger = logging.getLogger("IMC")
+
 
 class PyramidPooling3DClassifier(nn.Module):
     """
@@ -69,70 +70,54 @@ class PyramidPooling3DClassifier(nn.Module):
         pyramid_pooling_levels: List of grid sizes for the pyramid pooling layer.
         embedding_dim: Dimension of the MLP projection layer. If 0, no MLP is used.
     """
+
     def __init__(
         self,
         num_classes_dict: Dict[str, int],
-        backbone_type: str = 'resnet',
+        backbone_type: str = "resnet",
         backbone_channels: int = 32,
         backbone_blocks: List[int] = [2, 2, 2, 2],
         growth_rate: int = 12,
         densenet_block_config: tuple = (6, 12, 24, 16),
         compression: float = 0.5,
         pyramid_pooling_levels: List = [(1, 1, 1), (2, 2, 2), (4, 4, 4)],
-        embedding_dim: int = 512
+        embedding_dim: int = 512,
     ):
         super().__init__()
         self.num_classes_dict = num_classes_dict
         self.backbone_type = backbone_type
 
         # 1. 3D CNN Backbone
-        if backbone_type == 'resnet':
-            self.backbone = ResNet3D(
-                in_channels=1,
-                initial_channels=backbone_channels,
-                block_counts=backbone_blocks
-            )
+        if backbone_type == "resnet":
+            self.backbone = ResNet3D(in_channels=1, initial_channels=backbone_channels, block_counts=backbone_blocks)
             # For ResNet: output channels = initial_channels * (2 ** len(backbone_blocks))
             pyramid_in_channels = backbone_channels * (2 ** len(backbone_blocks))
-        elif backbone_type == 'densenet121':
-            self.backbone = densenet121_3d(
-                in_channels=1,
-                initial_channels=backbone_channels,
-                growth_rate=growth_rate
-            )
+        elif backbone_type == "densenet121":
+            self.backbone = densenet121_3d(in_channels=1, initial_channels=backbone_channels, growth_rate=growth_rate)
             pyramid_in_channels = self.backbone.out_channels
-        elif backbone_type == 'densenet169':
-            self.backbone = densenet169_3d(
-                in_channels=1,
-                initial_channels=backbone_channels,
-                growth_rate=growth_rate
-            )
+        elif backbone_type == "densenet169":
+            self.backbone = densenet169_3d(in_channels=1, initial_channels=backbone_channels, growth_rate=growth_rate)
             pyramid_in_channels = self.backbone.out_channels
-        elif backbone_type == 'densenet201':
-            self.backbone = densenet201_3d(
-                in_channels=1,
-                initial_channels=backbone_channels,
-                growth_rate=growth_rate
-            )
+        elif backbone_type == "densenet201":
+            self.backbone = densenet201_3d(in_channels=1, initial_channels=backbone_channels, growth_rate=growth_rate)
             pyramid_in_channels = self.backbone.out_channels
-        elif backbone_type == 'densenet_custom':
+        elif backbone_type == "densenet_custom":
             self.backbone = DenseNet3D(
                 in_channels=1,
                 initial_channels=backbone_channels,
                 growth_rate=growth_rate,
                 block_config=densenet_block_config,
-                compression=compression
+                compression=compression,
             )
             pyramid_in_channels = self.backbone.out_channels
         else:
-            raise ValueError(f"Unknown backbone_type: {backbone_type}. "
-                           f"Choose from 'resnet', 'densenet121', 'densenet169', 'densenet201', or 'densenet_custom'.")
+            raise ValueError(
+                f"Unknown backbone_type: {backbone_type}. "
+                f"Choose from 'resnet', 'densenet121', 'densenet169', 'densenet201', or 'densenet_custom'."
+            )
 
         # 2. 3D Pyramid Pooling
-        self.pyramid_pooling = PyramidPooling3D(
-            in_channels=pyramid_in_channels,
-            levels=pyramid_pooling_levels
-        )
+        self.pyramid_pooling = PyramidPooling3D(in_channels=pyramid_in_channels, levels=pyramid_pooling_levels)
 
         # 3. MLP Projection (optional)
         self.embedding_dim = embedding_dim
@@ -141,7 +126,7 @@ class PyramidPooling3DClassifier(nn.Module):
                 nn.Linear(self.pyramid_pooling.output_dim, embedding_dim),
                 nn.BatchNorm1d(embedding_dim),
                 nn.GELU(),
-                nn.Dropout(0.5)
+                nn.Dropout(0.5),
             )
             head_input_dim = embedding_dim
         else:
@@ -169,31 +154,31 @@ class PyramidPooling3DClassifier(nn.Module):
             per task, in the same order as *num_classes_dict*.
         """
         # Log input shape if in debug mode
-        if logging.getLogger('IMC').isEnabledFor(logging.DEBUG):
+        if logging.getLogger("IMC").isEnabledFor(logging.DEBUG):
             logger.debug(f"images shape: {images.shape}")
 
         # 1. Backbone feature extraction
-        features = self.backbone(images) # -> (B, C_f, D', H', W')
-        if logging.getLogger('IMC').isEnabledFor(logging.DEBUG):
+        features = self.backbone(images)  # -> (B, C_f, D', H', W')
+        if logging.getLogger("IMC").isEnabledFor(logging.DEBUG):
             logger.debug(f"backbone features shape: {features.shape}")
 
         # 2. Pyramid pooling
-        pooled_features = self.pyramid_pooling(features) # -> (B, C_pp)
-        if logging.getLogger('IMC').isEnabledFor(logging.DEBUG):
+        pooled_features = self.pyramid_pooling(features)  # -> (B, C_pp)
+        if logging.getLogger("IMC").isEnabledFor(logging.DEBUG):
             logger.debug(f"pooled features shape: {pooled_features.shape}")
 
         # 3. MLP projection
-        embedding = self.projection(pooled_features) # -> (B, E)
-        if logging.getLogger('IMC').isEnabledFor(logging.DEBUG):
+        embedding = self.projection(pooled_features)  # -> (B, E)
+        if logging.getLogger("IMC").isEnabledFor(logging.DEBUG):
             logger.debug(f"embedding shape: {embedding.shape}")
 
         # 4. Classification head
         logits_list = self.head(embedding)
-        
+
         return logits_list
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
 
     # Configuration
@@ -206,10 +191,7 @@ if __name__ == '__main__':
     print("=" * 80)
 
     # Create model with ResNet
-    model_resnet = PyramidPooling3DClassifier(
-        num_classes_dict=num_classes,
-        backbone_type='resnet'
-    )
+    model_resnet = PyramidPooling3DClassifier(num_classes_dict=num_classes, backbone_type="resnet")
     print(model_resnet)
 
     # Create a dummy input volume
@@ -230,10 +212,7 @@ if __name__ == '__main__':
 
     # Create model with DenseNet121
     model_densenet = PyramidPooling3DClassifier(
-        num_classes_dict=num_classes,
-        backbone_type='densenet121',
-        backbone_channels=16,
-        growth_rate=8
+        num_classes_dict=num_classes, backbone_type="densenet121", backbone_channels=16, growth_rate=8
     )
 
     # Get model output

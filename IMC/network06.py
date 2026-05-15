@@ -38,7 +38,7 @@ import torch.nn as nn
 import logging
 import os
 
-logger = logging.getLogger('IMC')
+logger = logging.getLogger("IMC")
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
 
 
@@ -83,7 +83,6 @@ class PixelOnlyModel(nn.Module):
         image_feat_dim = self.image_encoder.get_feature_dimension()
         self.image_head = MultiTaskHead(image_feat_dim, num_classes_dict, dropout=dropout, incl_regression=False)
         self.softmax = nn.Softmax(dim=-1)
-
 
     def get_image_logits(self, image_slices: torch.Tensor):
         """Compute per-task classification logits from image slices.
