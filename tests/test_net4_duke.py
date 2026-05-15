@@ -426,12 +426,18 @@ class TestDukeConfigureDatasetEnv:
     the dataset name string).
     """
 
+    def _set_required_env(self) -> None:
+        os.environ["LOCAL_DATASET_PATH"] = "/dummy/data"
+        os.environ["METADATA_PATH"] = "/dummy/meta.parquet"
+        os.environ["LABEL_CSV_PATH"] = "/dummy/labels.csv"
+
     # ---------------------------------------------------------------- train
 
     def test_train_returns_none(self) -> None:
         """train._configure_dataset_env must return None."""
         from IMC.net4_duke.train import _configure_dataset_env
 
+        self._set_required_env()
         args = _make_duke_train_args()
         result = _configure_dataset_env(args)
         assert result is None
@@ -440,6 +446,7 @@ class TestDukeConfigureDatasetEnv:
         """When debug=False, DEBUG_MODE env var must be '0'."""
         from IMC.net4_duke.train import _configure_dataset_env
 
+        self._set_required_env()
         args = _make_duke_train_args(debug=False)
         _configure_dataset_env(args)
         assert os.environ.get("DEBUG_MODE") == "0"
@@ -448,30 +455,29 @@ class TestDukeConfigureDatasetEnv:
         """When debug=True, DEBUG_MODE env var must be '1'."""
         from IMC.net4_duke.train import _configure_dataset_env
 
+        self._set_required_env()
         args = _make_duke_train_args(debug=True)
         _configure_dataset_env(args)
         assert os.environ.get("DEBUG_MODE") == "1"
 
-    def test_train_duke_defaults_set_when_missing(self) -> None:
-        """Duke default paths must be set when env vars are absent."""
+    def test_train_missing_env_raises(self) -> None:
+        """Training must fail fast when required Duke env vars are absent."""
         from IMC.net4_duke.train import _configure_dataset_env
 
         args = _make_duke_train_args()
-        # Remove keys so setdefault takes effect
         for key in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH"):
             os.environ.pop(key, None)
 
-        _configure_dataset_env(args)
-
-        assert "LOCAL_DATASET_PATH" in os.environ
-        assert "METADATA_PATH" in os.environ
-        assert "LABEL_CSV_PATH" in os.environ
+        with pytest.raises(ValueError, match="Missing Duke dataset configuration"):
+            _configure_dataset_env(args)
 
     def test_train_cli_dataset_path_overrides_env(self) -> None:
         """CLI --dataset_path must always override any existing env var."""
         from IMC.net4_duke.train import _configure_dataset_env
 
         os.environ["LOCAL_DATASET_PATH"] = "/old/path"
+        os.environ["METADATA_PATH"] = "/dummy/meta.parquet"
+        os.environ["LABEL_CSV_PATH"] = "/dummy/labels.csv"
         args = _make_duke_train_args(dataset_path="/new/path")
         _configure_dataset_env(args)
         assert os.environ["LOCAL_DATASET_PATH"] == "/new/path"
@@ -479,7 +485,9 @@ class TestDukeConfigureDatasetEnv:
     def test_train_cli_metadata_path_overrides_env(self) -> None:
         from IMC.net4_duke.train import _configure_dataset_env
 
+        os.environ["LOCAL_DATASET_PATH"] = "/dummy/data"
         os.environ["METADATA_PATH"] = "/old/meta.parquet"
+        os.environ["LABEL_CSV_PATH"] = "/dummy/labels.csv"
         args = _make_duke_train_args(metadata_path="/new/meta.parquet")
         _configure_dataset_env(args)
         assert os.environ["METADATA_PATH"] == "/new/meta.parquet"
@@ -487,6 +495,8 @@ class TestDukeConfigureDatasetEnv:
     def test_train_cli_label_csv_overrides_env(self) -> None:
         from IMC.net4_duke.train import _configure_dataset_env
 
+        os.environ["LOCAL_DATASET_PATH"] = "/dummy/data"
+        os.environ["METADATA_PATH"] = "/dummy/meta.parquet"
         os.environ["LABEL_CSV_PATH"] = "/old/labels.csv"
         args = _make_duke_train_args(label_csv_path="/new/labels.csv")
         _configure_dataset_env(args)
@@ -497,6 +507,8 @@ class TestDukeConfigureDatasetEnv:
         from IMC.net4_duke.train import _configure_dataset_env
 
         os.environ["LOCAL_DATASET_PATH"] = "/preserved/path"
+        os.environ["METADATA_PATH"] = "/dummy/meta.parquet"
+        os.environ["LABEL_CSV_PATH"] = "/dummy/labels.csv"
         args = _make_duke_train_args(dataset_path=None)
         _configure_dataset_env(args)
         assert os.environ["LOCAL_DATASET_PATH"] == "/preserved/path"
@@ -507,6 +519,7 @@ class TestDukeConfigureDatasetEnv:
         """infer._configure_dataset_env must return None."""
         from IMC.net4_duke.infer import _configure_dataset_env
 
+        self._set_required_env()
         args = _make_duke_infer_args()
         result = _configure_dataset_env(args)
         assert result is None
@@ -515,6 +528,7 @@ class TestDukeConfigureDatasetEnv:
         """infer._configure_dataset_env must always set DEBUG_MODE='0'."""
         from IMC.net4_duke.infer import _configure_dataset_env
 
+        self._set_required_env()
         args = _make_duke_infer_args()
         _configure_dataset_env(args)
         assert os.environ.get("DEBUG_MODE") == "0"
@@ -524,9 +538,22 @@ class TestDukeConfigureDatasetEnv:
         from IMC.net4_duke.infer import _configure_dataset_env
 
         os.environ["LOCAL_DATASET_PATH"] = "/old/data"
+        os.environ["METADATA_PATH"] = "/old/meta.parquet"
+        os.environ["LABEL_CSV_PATH"] = "/old/labels.csv"
         args = _make_duke_infer_args(dataset_path="/override/data")
         _configure_dataset_env(args)
         assert os.environ["LOCAL_DATASET_PATH"] == "/override/data"
+
+    def test_infer_missing_env_raises(self) -> None:
+        """Inference must fail fast when required Duke env vars are absent."""
+        from IMC.net4_duke.infer import _configure_dataset_env
+
+        args = _make_duke_infer_args()
+        for key in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH"):
+            os.environ.pop(key, None)
+
+        with pytest.raises(ValueError, match="Missing Duke dataset configuration"):
+            _configure_dataset_env(args)
 
 
 # ===========================================================================

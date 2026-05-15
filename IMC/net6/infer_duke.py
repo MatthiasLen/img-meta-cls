@@ -55,18 +55,6 @@ from IMC.evaluate_duke import run_evaluation
 from IMC.network06 import PixelOnlyModel
 
 # ---------------------------------------------------------------------------
-# Default dataset paths
-# ---------------------------------------------------------------------------
-_DATASET_PATH = "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2"
-_LABEL_CSV_PATH = (
-    "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv"
-)
-_METADATA_PATH = (
-    "/home/tuan.truong/codebase/IMC/labels/duke_encoded_metadata_20260107.parquet"
-)
-
-
-# ---------------------------------------------------------------------------
 # Dataloader factory
 # ---------------------------------------------------------------------------
 
@@ -349,9 +337,22 @@ def main(args: argparse.Namespace) -> None:
         args: Parsed argument namespace from :func:`parse_args`.
     """
     os.environ["DEBUG_MODE"] = "0"
-    os.environ["LOCAL_DATASET_PATH"] = args.dataset_path or _DATASET_PATH
-    os.environ["METADATA_PATH"] = args.metadata_path or _METADATA_PATH
-    os.environ["LABEL_CSV_PATH"] = args.label_csv_path or _LABEL_CSV_PATH
+    if args.dataset_path:
+        os.environ["LOCAL_DATASET_PATH"] = args.dataset_path
+    if args.metadata_path:
+        os.environ["METADATA_PATH"] = args.metadata_path
+    if args.label_csv_path:
+        os.environ["LABEL_CSV_PATH"] = args.label_csv_path
+
+    missing = [
+        name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH")
+        if not os.environ.get(name)
+    ]
+    if missing:
+        raise ValueError(
+            "Missing Duke dataset configuration. Set the environment variables "
+            f"{', '.join(missing)} or pass the corresponding CLI overrides."
+        )
 
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -410,7 +411,7 @@ def main(args: argparse.Namespace) -> None:
         print("\n" + "=" * 80)
         print("EVALUATION")
         print("=" * 80)
-        label_csv_path = os.environ.get("LABEL_CSV_PATH", _LABEL_CSV_PATH)
+        label_csv_path = os.environ["LABEL_CSV_PATH"]
         label_df = pd.read_csv(label_csv_path)
         run_evaluation(pred_df, label_df, args.output_dir)
         print(f"✓ Evaluation results saved to {args.output_dir}")

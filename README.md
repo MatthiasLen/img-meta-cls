@@ -1,172 +1,175 @@
-# IMC (Image Plus Metadata Classifier)
+# img-meta-cls
 
-IMC is a deep learning system for multi-task medical image classification, specifically designed for MRI sequence classification. The project supports multiple architectures ranging from 2-D image-only models to 3-D volumetric networks, and can incorporate DICOM metadata through cross-attention fusion.
+Research code accompanying the preprint "Revisiting Integration of Image and Metadata for DICOM Series Classification: Cross-Attention and Dictionary Learning" (arXiv:2602.23833).
 
-## Model Deployment
+The repository implements multimodal DICOM series classification models that combine image content and acquisition metadata, together with image-only and metadata-only baselines. The main public experiment surface is the Duke Liver MRI benchmark used in the paper.
 
-Deploy the IMC model as a serverless inference service on Google Cloud Platform:
+## Paper Summary
+
+The paper studies DICOM series classification under three practical failure modes: heterogeneous slice content, variable series length, and missing or inconsistent metadata. The proposed approach addresses these issues with:
+
+- a 2.5D image encoder operating on equidistantly sampled slices,
+- a sparse, missingness-aware metadata encoder that avoids explicit imputation,
+- cross-modal fusion through bi-directional attention between image and metadata representations.
+
+The codebase also includes Duke baselines used for comparison in the paper:
+
+- `net4_duke`: multimodal cross-attention fusion,
+- `net6`: 2D image-only baseline,
+- `net7`: 3D volumetric image-only baseline,
+- `xgboost`: metadata-only baseline.
+
+## Repository Scope
+
+This public release is focused on code needed to understand and reproduce the Duke experiments and the model components described in the preprint.
+
+- Duke dataset files are not included.
+- The large in-house multi-institutional cohort from the paper is not part of this repository.
+- You must provide dataset and metadata locations through environment variables or CLI flags.
+
+## Setup
+
+This repository uses `uv` and targets Python 3.11+.
 
 ```bash
-cd terraform
-
-# build container and push it to Artifact Registry
-./build.sh
-
-# run terraform and deploy infrastructure
-terraform init
-terraform plan
-terraform apply
-# Note: alternatively use the script `init_validate_apply.sh`
-```
-
-Test the deployed service via curl:
-
-```bash
-curl -i -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
-  'https://imc-inference-service-sir5sxwxha-ez.a.run.app/ready'
-```
-
-Or use `terraform/service/` for health checks and prediction requests.
-
-## Development Commands
-
-### Environment Setup
-
-```bash
-# Install dependencies using uv (modern Python package manager)
 uv sync
+```
 
-# Activate virtual environment
+Activate the environment if you want an interactive shell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+```bash
 source .venv/bin/activate
 ```
 
-### Training and Development
+## Required Dataset Configuration
 
-#### Network 4 – Cross-attention image + metadata fusion
-
-```bash
-# PV.AI liver MRI dataset (5-fold CV)
-python -m IMC.net4.train --modality combined --gpu 0
-
-# Brain MRI datasets (ADNI, GadOnly, etc.)
-python -m IMC.net4.train_brain --modality combined --gpu 0
-
-# CT contrast detection
-python -m IMC.net4.train_ct --modality combined --gpu 0
-```
-
-All three entry points accept `--modality combined|image|metadata` for fusion / image-only / metadata-only ablations.
-
-#### Network 6 – 2-D image-only (PixelOnlyModel) on Duke
+Most training and inference entry points expect these environment variables:
 
 ```bash
-# Train 5-fold CV
-python -m IMC.net6.train_duke --gpu 0
-
-# Train Random Forest metadata gate (optional)
-python -m IMC.net6.train_rf_duke --out_dir ./rf_checkpoints/duke_net6
-
-# Inference (with optional RF gate)
-python -m IMC.net6.infer_duke \
-    --ckpt ./logs/.../fold_0/best_model.pth \
-    --output_dir ./infer_out/fold_0 \
-    --rf_model ./rf_checkpoints/duke_net6/duke_metadata_rf_fold_0.joblib
+LOCAL_DATASET_PATH=/path/to/duke_images
+METADATA_PATH=/path/to/encoded_metadata.parquet
+LABEL_CSV_PATH=/path/to/labels.csv
 ```
 
-#### Network 7 – 3-D volumetric (PyramidPooling3DClassifier) on Duke
+You can also pass the corresponding CLI overrides:
+
+- `--dataset_path`
+- `--metadata_path`
+- `--label_csv_path`
+
+## Quick Validation
+
+Run the test suite:
 
 ```bash
-# Train a single fold (repeat for --fold 1..4)
-python -m IMC.net7.train_duke --fold 0 --backbone_type resnet --gpu 0
-
-# Run all folds in parallel
-for i in 0 1 2 3 4; do
-    python -m IMC.net7.train_duke --fold $i --gpu 0 &
-done
-
-# Inference
-python -m IMC.net7.infer_duke \
-    --ckpt ./logs/.../fold_0/best_model.pth \
-    --output_dir ./infer_out/duke/fold_0
+uv run pytest -q
 ```
 
-#### XGBoost – Metadata-only baseline
+## Main Experiment Entry Points
+
+### Network 4: multimodal image + metadata fusion on Duke
+
+Train 5-fold cross-validation:
 
 ```bash
-python -m IMC.xgboost.cv
+uv run python -m IMC.net4_duke.train --modality combined --gpu 0
 ```
 
-## Model Architectures
+Run inference for a trained fold:
 
-| Network   | Class                        | Input      | Modality         | Datasets                      |
-|-----------|------------------------------|------------|------------------|-------------------------------|
-| `net4`    | `MRISequenceClassifier`      | 2-D slices | Image + metadata | PV.AI liver, Brain MRI, CT    |
-| `net6`    | `PixelOnlyModel`             | 2-D slice  | Image only       | Duke liver                    |
-| `net7`    | `PyramidPooling3DClassifier` | 3-D volume | Image only       | Duke liver                    |
-| `xgboost` | XGBoost cross-validation     | —          | Metadata only    | Duke liver                    |
+```bash
+uv run python -m IMC.net4_duke.infer \
+  --ckpt ./logs/<run>/fold_0/best_model.pth \
+  --output_dir ./infer_out/net4/fold_0 \
+  --modality combined \
+  --folds 0 \
+  --run_eval
+```
 
-## File Organization
+Aggregate fold-level evaluation results:
 
-### Main Source (`IMC/`)
-- `network01.py` – `network07.py`: Evolution of model architectures (v01–v07)
-- `net4/`: Network 4 — cross-attention fusion on PV.AI liver, Brain MRI, and CT contrast — see [`IMC/net4/README.md`](IMC/net4/README.md)
-- `net4_duke/`: Network 4 adapted for Duke Liver MRI (5-fold CV) — see [`IMC/net4_duke/README.md`](IMC/net4_duke/README.md)
-- `net6/`: Network 6 — `PixelOnlyModel` on Duke; includes RF metadata gate — see [`IMC/net6/README.md`](IMC/net6/README.md)
-- `net7/`: Network 7 — `PyramidPooling3DClassifier` on Duke — see [`IMC/net7/README.md`](IMC/net7/README.md)
-- `xgboost/`: XGBoost metadata-only baseline (`cv.py`)
-- `trainer.py`: Reusable training framework with mixed precision
-- `evaluate.py` / `evaluate_duke.py`: Model evaluation and metrics
-- `helper.py`: Utility functions (visualization, normalization)
-- `tensorboard_logging.py`: TensorBoard + CSV combined logging
+```bash
+uv run python -m IMC.net4_duke.summarize_cv ./logs/<run>
+```
 
-### Neural Networks (`IMC/nn/`)
-- `image_encoder.py`: 2-D CNN backbone for multi-slice images (DenseNet121/ResNet18)
-- `resnet_3d.py` / `densenet_3d.py`: 3-D CNN backbones for volumetric inputs
-- `pyramid_pooling_3d.py`: 3-D multi-scale pyramid pooling module
-- `metadata_encoder.py`: MLP with contextual imputation for DICOM features
-- `emb_metadata_encoder.py`: Embedding-based metadata encoder
-- `sparse_metadata_encoder.py`: Sparse feature handling with FiLM conditioning
-- `sparse_metadata_encoder_v2.py` / `sparse_metadata_encoder_v5.py`: Evolved SME variants
-- `sparse_metadata_encoder_v1_onnx.py`: ONNX-compatible SME variant
-- `multi_task_head.py`: Classification heads for multiple tasks
-- `multi_task_loss.py`: Combined loss functions with label smoothing
-- `pre_processors.py` / `post_processors.py`: Input pre-processing and output post-processing
-- `meta_data_utils.py`: Shared metadata utilities
+### Network 6: 2D image-only Duke baseline
 
-### Data Pipeline (`IMC/data/`)
-- `duke_dataloader_local.py` / `duke_dataloader_3d.py`: Duke Liver MRI dataset (2-D and 3-D)
-- `brain_dataloader_local.py`: Brain MRI dataset (ADNI, GadOnly, GadProhance, etc.)
-- `ct_dataloader_local.py`: CT contrast detection dataset
-- `liver_dataloader_local.py`: PV.AI liver dataset for development
-- `liver_dataloader_gcp.py`: GCP dataset class with Dataflux integration
-- `dicom_tag_encoding.py`: DICOM metadata feature encoding
-- `dicom_tag_encoding_v2.py` / `dicom_tag_encoding_v3.py`: Evolved encoding versions
-- `dicom_tag_encoding_yaml.py`: YAML-config-driven metadata encoding
-- `dicom_ct_contrast_encoding.py`: CT contrast-specific feature encoding
-- `image_reader.py`: DICOM/NIfTI image reading utilities
-- `augment.py`: Image augmentation configurations (multiple presets)
-- `resize.py`: Image resizing utilities
-- `constants.py`: Shared dataset constants
-- `configs/`: YAML metadata encoding config files
+```bash
+uv run python -m IMC.net6.train_duke --gpu 0
+```
 
-### Model Export (`IMC/onnx/`)
-- `onnx_metadata_export.py`: ONNX model export utilities
-- `contrast_label_wrapper.py`: Label wrapper for ONNX contrast output
+Optional metadata gate:
 
-### Utility Scripts (`scripts/`)
-- `extract_dicom_tags.py`: Extract DICOM tags from a dataset folder
-- `encode_metadata.py`: Encode raw DICOM metadata to model features
-- `encode_ct_data.py`: CT-specific metadata encoding
-- `download_adni.py` / `download_ct_data.py`: Dataset download helpers
-- `scan_dicom_folder.py`: Scan and inventory a DICOM folder
+```bash
+uv run python -m IMC.net6.train_rf_duke --out_dir ./rf_checkpoints/duke_net6
+```
 
-### MICCAI Experiments (`miccai/`)
-Summary of experiments and results for the MICCAI paper (`summary.md`).
+Inference:
 
-### Deployment (`terraform/`)
-- `main.tf` / `variables.tf` / `outputs.tf`: Terraform infrastructure definition
-- `terraform.tfvars.example`: Example Terraform configuration variables
-- `service/`: Flask app for serving inference requests
-- `ct/`: CT-specific deployment configuration
-- `build.sh`: Build Docker container and push to Artifact Registry
-- `init_validate_apply.sh`: Run terraform init → validate → plan → apply cycle
+```bash
+uv run python -m IMC.net6.infer_duke \
+  --ckpt ./logs/<run>/fold_0/best_model.pth \
+  --output_dir ./infer_out/net6/fold_0
+```
+
+### Network 7: 3D volumetric Duke baseline
+
+Train a single fold:
+
+```bash
+uv run python -m IMC.net7.train_duke --fold 0 --gpu 0
+```
+
+Inference:
+
+```bash
+uv run python -m IMC.net7.infer_duke \
+  --ckpt ./logs/<run>/fold_0/best_model.pth \
+  --output_dir ./infer_out/net7/fold_0 \
+  --split fold_0
+```
+
+### Metadata-only XGBoost baseline
+
+```bash
+uv run python -m IMC.xgboost.cv
+```
+
+## Repository Layout
+
+```text
+IMC/
+  data/        Duke data loading, metadata encoding, image I/O
+  nn/          reusable model components
+  network04.py multimodal cross-attention architecture
+  network06.py 2D image-only baseline
+  network07.py 3D volumetric baseline
+  net4_duke/   Duke training, inference, and CV summarization for network 4
+  net6/        Duke training and inference for network 6
+  net7/        Duke training and inference for network 7
+  xgboost/     metadata-only baseline
+tests/         unit tests for loaders, encoders, and Duke workflows
+```
+
+## Notes On Reproducibility
+
+- The scripts no longer assume author-specific filesystem paths.
+- Dataset configuration must be supplied explicitly through env vars or CLI args.
+- Some optional backbones and older experimental modules remain in the codebase but are not the main public reproduction path for the paper.
+
+## Citation
+
+If you use this repository, please cite the paper:
+
+```bibtex
+@article{truong2026revisiting,
+  title={Revisiting Integration of Image and Metadata for DICOM Series Classification: Cross-Attention and Dictionary Learning},
+  author={Truong, Tuan and Dohmen, Melanie and Lorio, Sara and Lenga, Matthias},
+  journal={arXiv preprint arXiv:2602.23833},
+  year={2026}
+}
+```

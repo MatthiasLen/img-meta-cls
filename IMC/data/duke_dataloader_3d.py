@@ -338,9 +338,10 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logger.info("DukeLiverDataset3D Demo")
 
-    # Set dummy env vars for testing
-    os.environ["LOCAL_DATASET_PATH"] = "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2"
-    os.environ["LABEL_CSV_PATH"] = "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv"
+    if not os.environ.get("LOCAL_DATASET_PATH") or not os.environ.get("LABEL_CSV_PATH"):
+        raise RuntimeError(
+            "Set LOCAL_DATASET_PATH and LABEL_CSV_PATH before running the DukeLiverDataset3D demo."
+        )
 
     # Create dataset instance
     dataset = DukeLiverDataset3D(

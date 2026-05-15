@@ -55,11 +55,28 @@ def get_label_sort_order(letter_code):
     return LETTER_SORT_ORDER.get(letter_code, 999)
 
 # --- Configuration ---
-LABEL_CSV_PATH = "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv"
-METADATA_PATH = "/home/tuan.truong/codebase/IMC/labels/duke_agg_encoded_metadata_20260107.parquet"
-LOCAL_DATASET_PATH_PREFIX = "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2"
+LABEL_CSV_PATH = os.environ.get("LABEL_CSV_PATH", "")
+METADATA_PATH = os.environ.get("METADATA_PATH", "")
+LOCAL_DATASET_PATH_PREFIX = os.environ.get("LOCAL_DATASET_PATH", "")
 TARGET_LABEL = "SequenceType_Code_norm"
-OUTPUT_DIR = f"/home/tuan.truong/codebase/IMC/logs/xgboost_cv_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+OUTPUT_DIR = os.environ.get(
+    "XGBOOST_OUTPUT_DIR",
+    os.path.join("logs", f"xgboost_cv_{datetime.now().strftime('%Y%m%d_%H%M%S')}"),
+)
+
+missing = [
+    name for name, value in {
+        "LABEL_CSV_PATH": LABEL_CSV_PATH,
+        "METADATA_PATH": METADATA_PATH,
+        "LOCAL_DATASET_PATH": LOCAL_DATASET_PATH_PREFIX,
+    }.items()
+    if not value
+]
+if missing:
+    raise RuntimeError(
+        "Missing Duke dataset configuration for the XGBoost baseline. Set the "
+        f"environment variables {', '.join(missing)} before running this script."
+    )
 
 # Create output directory
 os.makedirs(OUTPUT_DIR, exist_ok=True)

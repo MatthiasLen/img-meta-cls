@@ -33,7 +33,7 @@ from IMC.data.image_reader import calculate_slice_indices, DicomImageReader
 from torch.utils.data import DataLoader, Dataset
 
 from IMC.data.augment import augment
-from IMC.data.dicom_tag_encoding import encode_dicom_tags_by_version
+from IMC.data.dicom_tag_encoding_v2 import encode_dicom_tags_by_version
 from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES, DEFAULT_LABEL_NAMES, SELECTED_FEATURES
 
 logger = logging.getLogger('IMC')
@@ -59,6 +59,10 @@ METADATA_PATH = os.getenv("METADATA_PATH", None)
 logger.info(f"METADATA_PATH: {METADATA_PATH}")
 LABEL_CSV_PATH = os.getenv("LABEL_CSV_PATH", None)
 logger.info(f"LABEL_CSV_PATH: {LABEL_CSV_PATH}")
+
+
+def _to_posix_path(path_value: str | Path) -> str:
+    return Path(path_value).as_posix()
 
 
 class LiverDataset(Dataset):
@@ -207,6 +211,8 @@ class LiverDataset(Dataset):
                 metadata_df = encode_dicom_tags_by_version(labels_df, dicom_encoding_version="brain")
             metadata_df = metadata_df.set_index("Filepath")
             labels_df = labels_df.set_index("Filepath")
+            metadata_df.index = metadata_df.index.map(self._normalize_dataset_index)
+            labels_df.index = labels_df.index.map(self._normalize_dataset_index)
 
             if self.use_preselected_features:
                 logger.info("Using preselected features for metadata")
@@ -242,6 +248,24 @@ class LiverDataset(Dataset):
             raise FileNotFoundError(f"Required CSV file not found: {e}")
         except Exception as e:
             raise RuntimeError(f"Error loading dataset: {e}")
+
+    def _normalize_dataset_index(self, path_value: str | Path) -> str:
+        """Normalize dataset paths to a repository-agnostic relative representation."""
+        path = Path(path_value)
+        if not path.is_absolute():
+            return _to_posix_path(path)
+
+        if self.local_dataset_path:
+            dataset_root = Path(self.local_dataset_path)
+            try:
+                return _to_posix_path(path.relative_to(dataset_root))
+            except ValueError:
+                root_name = dataset_root.name
+                if root_name in path.parts:
+                    root_idx = path.parts.index(root_name)
+                    return _to_posix_path(Path(*path.parts[root_idx + 1 :]))
+
+        return _to_posix_path(path)
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
@@ -346,10 +370,8 @@ class LiverDataset(Dataset):
 
         # Load metadata (individual dicom files or aggregated)
         if self.aggregated_metadata:
-            if self.metadata_df.index.to_list()[0].startswith("/home/tuan.truong"):
-                metadata = self.metadata_df.loc[str(Path(self.local_dataset_path) / path_dicom_folder)].to_numpy()
-            else:
-                metadata = self.metadata_df.loc[path_dicom_folder].to_numpy()
+            metadata_key = self._normalize_dataset_index(path_dicom_folder)
+            metadata = self.metadata_df.loc[metadata_key].to_numpy()
             metadata = torch.tensor(metadata, dtype=torch.float32) # (D,)
             metadata = metadata.unsqueeze(0).repeat(len(images), 1)  # (N, D)
         else:
@@ -360,7 +382,8 @@ class LiverDataset(Dataset):
                     metadata.append(m)
                     continue
                 try:
-                    m = self.metadata_df.loc[str(slice_filenames[slice_idx])].to_numpy()
+                    metadata_key = self._normalize_dataset_index(slice_filenames[slice_idx])
+                    m = self.metadata_df.loc[metadata_key].to_numpy()
                     m = torch.tensor(m, dtype=torch.float32)
                 except:
                     logger.error(f"Metadata not found for {slice_filenames[slice_idx]}, using NaNs")

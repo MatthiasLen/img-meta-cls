@@ -252,29 +252,14 @@ def parse_args() -> argparse.Namespace:
 def _configure_dataset_env(args: argparse.Namespace) -> None:
     """Apply Duke-specific dataset environment variables.
 
-    Sets ``LOCAL_DATASET_PATH``, ``METADATA_PATH``, and ``LABEL_CSV_PATH``
-    to their Duke-dataset defaults when the variables are not already present
-    in the environment.  CLI path overrides always take precedence over both
-    automatic defaults and any previously set environment variables.
+    Applies CLI path overrides for ``LOCAL_DATASET_PATH``, ``METADATA_PATH``,
+    and ``LABEL_CSV_PATH`` when provided and validates that all required Duke
+    dataset variables are configured before inference starts.
 
     Args:
         args: Parsed arguments from :func:`parse_args`.
     """
     os.environ["DEBUG_MODE"] = "0"
-
-    # Duke-specific default paths
-    os.environ.setdefault(
-        "LOCAL_DATASET_PATH",
-        "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2",
-    )
-    os.environ.setdefault(
-        "METADATA_PATH",
-        "/home/tuan.truong/codebase/IMC/labels/duke_encoded_metadata_20260107.parquet",
-    )
-    os.environ.setdefault(
-        "LABEL_CSV_PATH",
-        "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv",
-    )
 
     # CLI overrides always win
     if args.dataset_path:
@@ -283,6 +268,16 @@ def _configure_dataset_env(args: argparse.Namespace) -> None:
         os.environ["METADATA_PATH"] = args.metadata_path
     if args.label_csv_path:
         os.environ["LABEL_CSV_PATH"] = args.label_csv_path
+
+    missing = [
+        name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH")
+        if not os.environ.get(name)
+    ]
+    if missing:
+        raise ValueError(
+            "Missing Duke dataset configuration. Set the environment variables "
+            f"{', '.join(missing)} or pass the corresponding CLI overrides."
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 from torchvision import models
@@ -157,16 +159,26 @@ class MultiSliceImageEncoder(nn.Module):
         elif backbone_name.startswith("dinov3"):
             # DINOv3: Self-supervised vision transformers
             # Trained with self-distillation without labels
-            # NOTE: These use local file paths specific to the original development environment
             import torch.hub
+            repo_dir = os.environ.get("IMC_DINOV3_REPO")
+            weights_dir = os.environ.get("IMC_DINOV3_WEIGHTS_DIR")
+
+            if not repo_dir:
+                raise ValueError(
+                    "DINOv3 backbones require IMC_DINOV3_REPO to point to a local dinov3 checkout."
+                )
+
             if backbone_name == "dinov3_vits16":
-                self.cnn = torch.hub.load("/home/tuan.truong/codebase/dinov3", 'dinov3_vits16', source='local', weights="/home/tuan.truong/codebase/pretrained_models/dinov3_vits16_pretrain_lvd1689m-08c60483.pth" if pretrained else None)
+                weights_path = os.path.join(weights_dir, "dinov3_vits16_pretrain_lvd1689m-08c60483.pth") if pretrained and weights_dir else None
+                self.cnn = torch.hub.load(repo_dir, 'dinov3_vits16', source='local', weights=weights_path)
                 self.slice_feat_dim = 384
             elif backbone_name == "dinov3_vitb16":
-                self.cnn = torch.hub.load("/home/tuan.truong/codebase/dinov3", 'dinov3_vitb16', source='local', weights="/home/tuan.truong/codebase/pretrained_models/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth" if pretrained else None)
+                weights_path = os.path.join(weights_dir, "dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth") if pretrained and weights_dir else None
+                self.cnn = torch.hub.load(repo_dir, 'dinov3_vitb16', source='local', weights=weights_path)
                 self.slice_feat_dim = 768
             elif backbone_name == "dinov3_vitl16":
-                self.cnn = torch.hub.load("/home/tuan.truong/codebase/dinov3", 'dinov3_vitl16', source='local', weights="/home/tuan.truong/codebase/pretrained_models/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth" if pretrained else None)
+                weights_path = os.path.join(weights_dir, "dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth") if pretrained and weights_dir else None
+                self.cnn = torch.hub.load(repo_dir, 'dinov3_vitl16', source='local', weights=weights_path)
                 self.slice_feat_dim = 1024
             else:
                 raise ValueError(f"Unsupported DINOv3 backbone: {backbone_name}")

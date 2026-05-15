@@ -39,18 +39,6 @@ from torch.utils.data import DataLoader, Dataset
 from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES
 
 # ---------------------------------------------------------------------------
-# Default Duke dataset paths
-# ---------------------------------------------------------------------------
-_DATASET_PATH = "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2"
-_LABEL_CSV_PATH = (
-    "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv"
-)
-_METADATA_PATH = (
-    "/home/tuan.truong/codebase/IMC/labels/duke_encoded_metadata_20260107.parquet"
-)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -174,10 +162,23 @@ def parse_args() -> argparse.Namespace:
 
 
 def _configure_dataset_env(args: argparse.Namespace) -> None:
-    """Set Duke dataset environment variables from CLI args (if provided)."""
-    os.environ["LOCAL_DATASET_PATH"] = args.dataset_path or _DATASET_PATH
-    os.environ["METADATA_PATH"] = args.metadata_path or _METADATA_PATH
-    os.environ["LABEL_CSV_PATH"] = args.label_csv_path or _LABEL_CSV_PATH
+    """Apply CLI path overrides and validate Duke dataset configuration."""
+    if args.dataset_path:
+        os.environ["LOCAL_DATASET_PATH"] = args.dataset_path
+    if args.metadata_path:
+        os.environ["METADATA_PATH"] = args.metadata_path
+    if args.label_csv_path:
+        os.environ["LABEL_CSV_PATH"] = args.label_csv_path
+
+    missing = [
+        name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH")
+        if not os.environ.get(name)
+    ]
+    if missing:
+        raise ValueError(
+            "Missing Duke dataset configuration. Set the environment variables "
+            f"{', '.join(missing)} or pass the corresponding CLI overrides."
+        )
 
 
 def main(args: argparse.Namespace) -> None:
