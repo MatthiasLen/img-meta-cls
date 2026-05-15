@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint:
-    name: Lint & format check
+    name: Pre-commit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,11 +26,8 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --extra dev
 
-      - name: Ruff lint
-        run: uv run ruff check IMC/ tests/
-
-      - name: Ruff format check
-        run: uv run ruff format --check IMC/ tests/
+      - name: Run pre-commit hooks
+        run: uv run pre-commit run --all-files --show-diff-on-failure
 
   test:
     name: Unit tests

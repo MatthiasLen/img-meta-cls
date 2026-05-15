@@ -247,8 +247,7 @@ class TestDicomImageReaderPixels:
         ds = self._make_fake_ds((64, 64))
 
         reader = DicomImageReader()
-        with mock.patch("IMC.data.image_reader.DicomImageReader.read_pixel_array",
-                        wraps=reader.read_pixel_array) as _:
+        with mock.patch("IMC.data.image_reader.DicomImageReader.read_pixel_array", wraps=reader.read_pixel_array) as _:
             # Patch the inner dcmread call inside image_reader
             with mock.patch("pydicom.dcmread", return_value=ds):
                 arr, header = reader.read_pixel_array(fake_path)
@@ -307,6 +306,7 @@ class TestImageReaderAbstract:
 
     def test_partial_subclass_still_abstract(self):
         """A subclass missing read_pixel_array must still be abstract."""
+
         class Partial(ImageReader):
             def list_files(self, folder):
                 return []
@@ -341,8 +341,7 @@ def _patch_load(cls, path, extra_attrs=None):
             for k, v in extra_attrs.items():
                 setattr(self, k, v)
 
-    return mock.patch.object(cls, "_load_metadata_and_labels", autospec=True,
-                             side_effect=_stub)
+    return mock.patch.object(cls, "_load_metadata_and_labels", autospec=True, side_effect=_stub)
 
 
 class _BaseDataloaderReaderTest:
@@ -350,12 +349,9 @@ class _BaseDataloaderReaderTest:
 
     @staticmethod
     def _assert_has_reader(dataset, expected_class=DicomImageReader):
-        assert hasattr(dataset, "_reader"), (
-            "Dataset must expose self._reader after __init__"
-        )
+        assert hasattr(dataset, "_reader"), "Dataset must expose self._reader after __init__"
         assert isinstance(dataset._reader, expected_class), (
-            f"Expected self._reader to be {expected_class.__name__}, "
-            f"got {type(dataset._reader).__name__}"
+            f"Expected self._reader to be {expected_class.__name__}, got {type(dataset._reader).__name__}"
         )
 
 
@@ -393,8 +389,7 @@ class TestLiverDatasetReaderIntegration(_BaseDataloaderReaderTest):
 
     def test_calculate_slice_indices_delegates(self, tmp_path):
         ds = self._build(tmp_path)
-        with mock.patch("IMC.data.liver_dataloader_local.calculate_slice_indices",
-                        return_value=[0, 2, 4]) as m:
+        with mock.patch("IMC.data.liver_dataloader_local.calculate_slice_indices", return_value=[0, 2, 4]) as m:
             result = ds._calculate_slice_indices(10, 3, "equidistant")
         m.assert_called_once_with(10, 3, "equidistant")
         assert result == [0, 2, 4]
@@ -455,8 +450,7 @@ class TestADNIDatasetReaderIntegration(_BaseDataloaderReaderTest):
             self.metadata_df = adni_attrs["metadata_df"]
             self.num_samples = adni_attrs["num_samples"]
 
-        with mock.patch.object(ADNIDataset, "_load_metadata_and_labels",
-                               autospec=True, side_effect=_stub):
+        with mock.patch.object(ADNIDataset, "_load_metadata_and_labels", autospec=True, side_effect=_stub):
             ds = ADNIDataset(
                 num_samples=1,
                 n_slices=2,
@@ -486,8 +480,7 @@ class TestADNIDatasetReaderIntegration(_BaseDataloaderReaderTest):
 
     def test_calculate_slice_indices_delegates(self, tmp_path):
         ds = self._build(tmp_path)
-        with mock.patch("IMC.data.adni_dataloader_local.calculate_slice_indices",
-                        return_value=[0, 5]) as m:
+        with mock.patch("IMC.data.adni_dataloader_local.calculate_slice_indices", return_value=[0, 5]) as m:
             result = ds._calculate_slice_indices(20, 2, "random")
         m.assert_called_once_with(20, 2, "random")
         assert result == [0, 5]
@@ -510,8 +503,7 @@ class TestCTDatasetReaderIntegration(_BaseDataloaderReaderTest):
             self._enc_cols = ["enc_x"]
             self.num_samples = 1
 
-        with mock.patch.object(CTDataset, "_load_metadata_and_labels",
-                               autospec=True, side_effect=_stub):
+        with mock.patch.object(CTDataset, "_load_metadata_and_labels", autospec=True, side_effect=_stub):
             ds = CTDataset(
                 num_samples=1,
                 n_slices=2,
@@ -527,8 +519,7 @@ class TestCTDatasetReaderIntegration(_BaseDataloaderReaderTest):
 
     def test_calculate_slice_indices_delegates(self, tmp_path):
         ds = self._build(tmp_path)
-        with mock.patch("IMC.data.ct_dataloader_local.calculate_slice_indices",
-                        return_value=[0, 3]) as m:
+        with mock.patch("IMC.data.ct_dataloader_local.calculate_slice_indices", return_value=[0, 3]) as m:
             result = ds._calculate_slice_indices(15, 2)
         m.assert_called_once_with(15, 2, ds.sampling_type)
         assert result == [0, 3]

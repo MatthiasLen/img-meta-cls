@@ -49,7 +49,7 @@ For `combined` and `metadata`, the metadata branch can use either:
 IMC/net4_duke/
 ├── helper.py        – Shared build_model factory used by train and infer
 ├── train.py         – 5-fold CV training entry point
-├── infer.py         – Inference entry point  
+├── infer.py         – Inference entry point
 ├── summarize_cv.py  – CV fold aggregation and report generation
 └── README.md        – This file
 ```

@@ -45,6 +45,12 @@ Activate the environment if you want an interactive shell:
 source .venv/bin/activate
 ```
 
+Install the local Git hooks if you want the same checks to run before each commit:
+
+```bash
+uv run pre-commit install
+```
+
 ## Required Dataset Configuration
 
 Most training and inference entry points expect these environment variables:
@@ -62,6 +68,12 @@ You can also pass the corresponding CLI overrides:
 - `--label_csv_path`
 
 ## Quick Validation
+
+Run the pre-commit checks used by CI:
+
+```bash
+uv run pre-commit run --all-files
+```
 
 Run the test suite:
 

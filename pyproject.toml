@@ -34,6 +34,7 @@ Paper = "https://arxiv.org/abs/2602.23833"
 
 [project.optional-dependencies]
 dev = [
+    "pre-commit>=4.2.0",
     "ruff>=0.11.0",
 ]
 
