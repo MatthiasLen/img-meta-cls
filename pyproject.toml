@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Research code for DICOM series classification with image-metadata fusion, sparse metadata encoding, and Duke Liver MRI baselines."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
 keywords = ["medical-imaging", "dicom", "multimodal-learning", "pytorch", "mri"]
 dependencies = [
     "discrete-continuous-embed-readout>=0.0.40",
