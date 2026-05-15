@@ -39,18 +39,6 @@ from torch.utils.data import DataLoader, Dataset
 from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES
 
 # ---------------------------------------------------------------------------
-# Default Duke dataset paths
-# ---------------------------------------------------------------------------
-_DATASET_PATH = "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2"
-_LABEL_CSV_PATH = (
-    "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv"
-)
-_METADATA_PATH = (
-    "/home/tuan.truong/codebase/IMC/labels/duke_encoded_metadata_20260107.parquet"
-)
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -71,11 +59,7 @@ def extract_X_y(dataset: Dataset, batch_size: int = 64) -> tuple[np.ndarray, np.
     """
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     label_keys = list(dataset.label_names.keys())
-    seq_idx = (
-        label_keys.index("SequenceType_Code_norm")
-        if "SequenceType_Code_norm" in label_keys
-        else 0
-    )
+    seq_idx = label_keys.index("SequenceType_Code_norm") if "SequenceType_Code_norm" in label_keys else 0
 
     X_rows: list[np.ndarray] = []
     y_rows: list[np.ndarray] = []
@@ -142,9 +126,7 @@ def train_fold_rf(
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for RF training."""
     parser = argparse.ArgumentParser(
-        description=(
-            "Train per-fold RandomForest metadata classifiers for the Duke net6 pipeline."
-        )
+        description=("Train per-fold RandomForest metadata classifiers for the Duke net6 pipeline.")
     )
     parser.add_argument(
         "--out_dir",
@@ -161,10 +143,7 @@ def parse_args() -> argparse.Namespace:
         "--folds",
         type=str,
         default=None,
-        help=(
-            "Comma-separated list of fold indices to train (e.g. '0,1,2'). "
-            "Defaults to all 5 folds."
-        ),
+        help=("Comma-separated list of fold indices to train (e.g. '0,1,2'). Defaults to all 5 folds."),
     )
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size for metadata extraction.")
     parser.add_argument("--dataset_path", type=str, default=None, help="Override LOCAL_DATASET_PATH.")
@@ -174,10 +153,20 @@ def parse_args() -> argparse.Namespace:
 
 
 def _configure_dataset_env(args: argparse.Namespace) -> None:
-    """Set Duke dataset environment variables from CLI args (if provided)."""
-    os.environ["LOCAL_DATASET_PATH"] = args.dataset_path or _DATASET_PATH
-    os.environ["METADATA_PATH"] = args.metadata_path or _METADATA_PATH
-    os.environ["LABEL_CSV_PATH"] = args.label_csv_path or _LABEL_CSV_PATH
+    """Apply CLI path overrides and validate Duke dataset configuration."""
+    if args.dataset_path:
+        os.environ["LOCAL_DATASET_PATH"] = args.dataset_path
+    if args.metadata_path:
+        os.environ["METADATA_PATH"] = args.metadata_path
+    if args.label_csv_path:
+        os.environ["LABEL_CSV_PATH"] = args.label_csv_path
+
+    missing = [name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH") if not os.environ.get(name)]
+    if missing:
+        raise ValueError(
+            "Missing Duke dataset configuration. Set the environment variables "
+            f"{', '.join(missing)} or pass the corresponding CLI overrides."
+        )
 
 
 def main(args: argparse.Namespace) -> None:
@@ -197,16 +186,13 @@ def main(args: argparse.Namespace) -> None:
     os.makedirs(args.out_dir, exist_ok=True)
 
     n_folds = 5
-    folds_to_run = (
-        [int(f.strip()) for f in args.folds.split(",")]
-        if args.folds is not None
-        else list(range(n_folds))
-    )
+    folds_to_run = [int(f.strip()) for f in args.folds.split(",")] if args.folds is not None else list(range(n_folds))
 
     for idx, fold_idx in enumerate(folds_to_run):
         if not (0 <= fold_idx < n_folds):
             raise ValueError(f"Fold index {fold_idx} is out of range [0, {n_folds - 1}].")
     from IMC.data.duke_dataloader_local import LiverDataset
+
     dataset_kwargs: dict = dict(
         num_samples=None,
         n_slices=1,

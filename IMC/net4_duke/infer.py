@@ -82,6 +82,7 @@ from IMC.evaluate_duke import run_evaluation
 # Argument parser
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the Duke inference script.
 
@@ -199,10 +200,7 @@ def parse_args() -> argparse.Namespace:
         "--folds",
         type=str,
         default=None,
-        help=(
-            "Comma-separated fold indices to infer on "
-            "(e.g. '0,1,2').  Defaults to all data (no fold filter)."
-        ),
+        help=("Comma-separated fold indices to infer on (e.g. '0,1,2').  Defaults to all data (no fold filter)."),
     )
     parser.add_argument(
         "--dataset_path",
@@ -223,22 +221,19 @@ def parse_args() -> argparse.Namespace:
         help="Override LABEL_CSV_PATH environment variable.",
     )
     parser.add_argument("--batch_size", type=int, default=16, help="Inference mini-batch size.")
+    parser.add_argument("--num_workers", type=int, default=4, help="Number of DataLoader worker processes.")
+    parser.add_argument("--gpu", type=int, default=0, help="CUDA device index.  Use -1 for CPU.")
     parser.add_argument(
-        "--num_workers", type=int, default=4, help="Number of DataLoader worker processes."
-    )
-    parser.add_argument(
-        "--gpu", type=int, default=0, help="CUDA device index.  Use -1 for CPU."
-    )
-    parser.add_argument(
-        "--n_slices", type=int, default=3,
+        "--n_slices",
+        type=int,
+        default=3,
         help="Number of slices to sample from each MRI volume.",
     )
     parser.add_argument(
         "--run_eval",
         action="store_true",
         help=(
-            "Run evaluation after inference.  Requires a ground-truth label "
-            "CSV at LABEL_CSV_PATH / --label_csv_path."
+            "Run evaluation after inference.  Requires a ground-truth label CSV at LABEL_CSV_PATH / --label_csv_path."
         ),
     )
 
@@ -249,32 +244,18 @@ def parse_args() -> argparse.Namespace:
 # Dataset environment setup
 # ---------------------------------------------------------------------------
 
+
 def _configure_dataset_env(args: argparse.Namespace) -> None:
     """Apply Duke-specific dataset environment variables.
 
-    Sets ``LOCAL_DATASET_PATH``, ``METADATA_PATH``, and ``LABEL_CSV_PATH``
-    to their Duke-dataset defaults when the variables are not already present
-    in the environment.  CLI path overrides always take precedence over both
-    automatic defaults and any previously set environment variables.
+    Applies CLI path overrides for ``LOCAL_DATASET_PATH``, ``METADATA_PATH``,
+    and ``LABEL_CSV_PATH`` when provided and validates that all required Duke
+    dataset variables are configured before inference starts.
 
     Args:
         args: Parsed arguments from :func:`parse_args`.
     """
     os.environ["DEBUG_MODE"] = "0"
-
-    # Duke-specific default paths
-    os.environ.setdefault(
-        "LOCAL_DATASET_PATH",
-        "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2",
-    )
-    os.environ.setdefault(
-        "METADATA_PATH",
-        "/home/tuan.truong/codebase/IMC/labels/duke_encoded_metadata_20260107.parquet",
-    )
-    os.environ.setdefault(
-        "LABEL_CSV_PATH",
-        "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv",
-    )
 
     # CLI overrides always win
     if args.dataset_path:
@@ -284,10 +265,18 @@ def _configure_dataset_env(args: argparse.Namespace) -> None:
     if args.label_csv_path:
         os.environ["LABEL_CSV_PATH"] = args.label_csv_path
 
+    missing = [name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH") if not os.environ.get(name)]
+    if missing:
+        raise ValueError(
+            "Missing Duke dataset configuration. Set the environment variables "
+            f"{', '.join(missing)} or pass the corresponding CLI overrides."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Dataloader
 # ---------------------------------------------------------------------------
+
 
 def create_inference_dataloader(
     fold_indices: Optional[List[int]],
@@ -347,6 +336,7 @@ def create_inference_dataloader(
 # Model loader
 # ---------------------------------------------------------------------------
 
+
 def load_model(
     args: argparse.Namespace,
     num_classes_dict: dict,
@@ -385,7 +375,7 @@ def load_model(
     Raises:
         FileNotFoundError: If the checkpoint at ``args.ckpt`` does not exist.
     """
-    from IMC.net4.helper import build_model
+    from IMC.net4_duke.helper import build_model
 
     model = build_model(
         modality=args.modality,
@@ -417,6 +407,7 @@ def load_model(
 # ---------------------------------------------------------------------------
 # Inference loop
 # ---------------------------------------------------------------------------
+
 
 def run_inference(
     model: nn.Module,
@@ -484,8 +475,7 @@ def run_inference(
     # Derive binary contrast label from the phase prediction
     if "label_ContrastPhase" in label_maps:
         predictions["label_Contrast"] = [
-            "post" if phase not in ("pre", "na") else "pre"
-            for phase in predictions["label_ContrastPhase"]
+            "post" if phase not in ("pre", "na") else "pre" for phase in predictions["label_ContrastPhase"]
         ]
 
     output_df = pd.DataFrame({"Filepath": filepaths})
@@ -498,6 +488,7 @@ def run_inference(
 # ---------------------------------------------------------------------------
 # Main inference routine
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     """Run inference on the Duke Liver Dataset and optionally evaluate.
@@ -533,11 +524,7 @@ def main() -> None:
         print("Running inference on all data")
 
     # ---- device ------------------------------------------------------------
-    device = (
-        torch.device(f"cuda:{args.gpu}")
-        if args.gpu >= 0 and torch.cuda.is_available()
-        else torch.device("cpu")
-    )
+    device = torch.device(f"cuda:{args.gpu}") if args.gpu >= 0 and torch.cuda.is_available() else torch.device("cpu")
     print(f"Using device: {device}")
 
     # ---- dataloader --------------------------------------------------------
@@ -554,7 +541,7 @@ def main() -> None:
 
     num_classes_dict = dataloader.dataset.get_n_labels()
     metadata_input_dim = dataloader.dataset.num_metadata_features
-    print(f"\nModel configuration:")
+    print("\nModel configuration:")
     print(f"  Backbone        : {args.img_enc_backbone}")
     print(f"  Metadata dim    : {metadata_input_dim}")
     print(f"  Tasks           : {list(num_classes_dict.keys())}")
@@ -597,6 +584,10 @@ def main() -> None:
         print("=" * 80)
         label_csv_path = os.environ.get("LABEL_CSV_PATH")
         label_df = pd.read_csv(label_csv_path)
+        # Normalize label CSV Filepath column to match the relative paths written
+        # into predictions.csv by the dataloader (absolute paths in the label CSV
+        # would otherwise find zero common samples with pred_df).
+        label_df["Filepath"] = label_df["Filepath"].map(dataloader.dataset._normalize_dataset_index)
         run_evaluation(pred_df, label_df, args.output_dir)
         print(f"\n✓ Evaluation results saved to {args.output_dir}")
 

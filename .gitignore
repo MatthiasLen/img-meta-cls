@@ -2,6 +2,7 @@ labels
 logs
 CLAUDE.md
 notebooks
+smoke_test.sh
 # Editors
 .vscode/
 .idea/

@@ -9,10 +9,7 @@ inference environments.
 
 # Backwards compatibility with older code that references DEFAULT_LABEL_NAMES
 DEFAULT_LABEL_NAMES_OLD = {
-    "label_SequenceType": [
-        "T1", "T2", "DWI", "ADC", "SUB", "DIXON_F", 
-        "DIXON_IN", "DIXON_OPP", "BOLUS", "OTHER", "na"
-    ],
+    "label_SequenceType": ["T1", "T2", "DWI", "ADC", "SUB", "DIXON_F", "DIXON_IN", "DIXON_OPP", "BOLUS", "OTHER", "na"],
     "label_FatSat": ["yes", "no", "na"],
     "label_MRCP": ["yes", "no", "na"],
     "label_AcquisitionPlane": ["AX", "COR", "SAG", "ORTHO", "ROT", "na"],
@@ -33,7 +30,7 @@ DEFAULT_LABEL_NAMES = {
 
 DUKE_LABEL_NAMES = {
     "label_SequenceType": ["T1", "T2", "DWI", "ADC", "DIXON_IN", "DIXON_OPP", "OTHER", "na"],
-    "label_FatSat": ["yes", "no", "na"],    
+    "label_FatSat": ["yes", "no", "na"],
     "label_MRCP": ["yes", "no", "na"],
     "label_AcquisitionPlane": ["AX", "COR", "OTHER", "na"],
     "label_ContrastPhase": ["pre", "art", "portven", "late", "na"],
@@ -42,7 +39,7 @@ DUKE_LABEL_NAMES = {
 }
 
 DUKE_ORIGINAL_LABEL_NAMES = {
-    "SequenceType_Code_norm": ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']
+    "SequenceType_Code_norm": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"]
 }
 
 ADNI_LABEL_NAMES = {
@@ -76,38 +73,38 @@ CT_LABEL_NAMES = {
 # These features are extracted from encoded DICOM tags and used as input
 # to the neural network model alongside image data
 SELECTED_FEATURES = [
-    'enc_AcquisitionPlane_ORTHO',
-    'enc_SeriesDescription_mrcp',
-    'enc_SeriesDescription_loc',
-    'enc_FlipAngle',
-    'enc_ScanningSequence_SE',
-    'enc_AcquisitionPlane_COR',
-    'enc_MRAcquisitionType_3D',
-    'enc_MRAcquisitionType_2D',
-    'enc_ScanOptions_fatsat',
-    'enc_AcquisitionPlane_AX',
-    'enc_AcquisitionPlane_ROT',
-    'enc_ImageType_adc',
-    'enc_SliceLocation_multiple',
-    'enc_SliceThickness',
-    'enc_ImageType_subtraction',
-    'enc_EchoTrainLength',
-    'enc_ImageType_water',
-    'enc_DiffusionBValue_missing',
-    'enc_ScanningSequence_EP',
-    'enc_SequenceVariant_SK',
-    'enc_PixelBandwidth',
-    'enc_ImageOrientationPatient_multiple',
-    'enc_ContrastBolusAgent_missing',
-    'enc_SeriesDescription_t1w',
-    'enc_SequenceVariant_SS',
-    'enc_AcquisitionPlane_SAG',
-    'enc_AcquisitionDuration_missing',
-    'enc_PixelSpacing_y',
-    'enc_NumberOfAverages',
-    'enc_EchoTime',
-    'enc_ImagesInSeries',
-    'enc_PixelSpacing_x',
+    "enc_AcquisitionPlane_ORTHO",
+    "enc_SeriesDescription_mrcp",
+    "enc_SeriesDescription_loc",
+    "enc_FlipAngle",
+    "enc_ScanningSequence_SE",
+    "enc_AcquisitionPlane_COR",
+    "enc_MRAcquisitionType_3D",
+    "enc_MRAcquisitionType_2D",
+    "enc_ScanOptions_fatsat",
+    "enc_AcquisitionPlane_AX",
+    "enc_AcquisitionPlane_ROT",
+    "enc_ImageType_adc",
+    "enc_SliceLocation_multiple",
+    "enc_SliceThickness",
+    "enc_ImageType_subtraction",
+    "enc_EchoTrainLength",
+    "enc_ImageType_water",
+    "enc_DiffusionBValue_missing",
+    "enc_ScanningSequence_EP",
+    "enc_SequenceVariant_SK",
+    "enc_PixelBandwidth",
+    "enc_ImageOrientationPatient_multiple",
+    "enc_ContrastBolusAgent_missing",
+    "enc_SeriesDescription_t1w",
+    "enc_SequenceVariant_SS",
+    "enc_AcquisitionPlane_SAG",
+    "enc_AcquisitionDuration_missing",
+    "enc_PixelSpacing_y",
+    "enc_NumberOfAverages",
+    "enc_EchoTime",
+    "enc_ImagesInSeries",
+    "enc_PixelSpacing_x",
 ]
 
 DUKE_MAP_LABELS: dict[str, dict[str, str]] = {

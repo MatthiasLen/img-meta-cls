@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import time
-import math
 import numpy as np
 from sklearn import logger
 import torch
@@ -18,10 +16,11 @@ import os
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
 print(f"DEBUG_MODE is {'ON' if DEBUG_MODE else 'OFF'}")
 
-def classification_losses(outputs: list , targets: list) -> list:
+
+def classification_losses(outputs: list, targets: list) -> list:
     """
     Calculates and prints the accuracy for each classification task.
-    
+
     Args:
         outputs (list of torch.Tensor): List of model outputs for each task, where each output is a tensor of class scores.
         targets (list of torch.Tensor): List of ground truth labels for each task.
@@ -29,11 +28,11 @@ def classification_losses(outputs: list , targets: list) -> list:
         AssertionError: If the number of outputs and targets do not match.
     Returns:
         list with task accuracies
-        
-    """    
+
+    """
     assert len(outputs) == len(targets)
     accu_list = []
-    
+
     # iterate over tasks
     for i, (output, target) in enumerate(zip(outputs, targets)):
         pred = output.clone().detach().cpu().numpy()
@@ -42,32 +41,36 @@ def classification_losses(outputs: list , targets: list) -> list:
         accuracy = np.mean(pred_cl == target_cl)
         accu_list.append(accuracy)
         print(f"Task {i} Accuracy:", accuracy)
-       
+
     return accu_list
+
 
 class Trainer:
     """
     Reusable Trainer for IMC experiments with mixed precision, multi-task loss,
     LR scheduling, gradient clipping, checkpointing, early stopping, and TensorBoard logging.
     """
-    def __init__(self,
-                 model: torch.nn.Module,
-                 device: torch.device,
-                 optimizer: torch.optim.Optimizer,
-                 scheduler,
-                 criterion,                 
-                 task_names: list,
-                 scaler: Optional[torch.amp.GradScaler],
-                 tb_logger=None,
-                 logger=None,
-                 patience: int = 5,
-                 task_weights: Union[list, None] = None,
-                 use_mixed_precision: bool = True,
-                 incl_regression: bool = True,
-                 profiler_dir: Optional[str] = None,
-                 use_z_score_norm: bool = True,
-                 trainable_task_heads: Optional[list] = None,
-                 freeze_backbone: bool = False):
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        device: torch.device,
+        optimizer: torch.optim.Optimizer,
+        scheduler,
+        criterion,
+        task_names: list,
+        scaler: Optional[torch.amp.GradScaler],
+        tb_logger=None,
+        logger=None,
+        patience: int = 5,
+        task_weights: Union[list, None] = None,
+        use_mixed_precision: bool = True,
+        incl_regression: bool = True,
+        profiler_dir: Optional[str] = None,
+        use_z_score_norm: bool = True,
+        trainable_task_heads: Optional[list] = None,
+        freeze_backbone: bool = False,
+    ):
         self.model = model.to(device)
         self.device = device
         self.optimizer = optimizer
@@ -150,8 +153,7 @@ class Trainer:
         total = sum(p.numel() for p in self.model.parameters())
         if self.logger:
             self.logger.info(
-                f"[Finetune] Trainable params: {trainable:,} / {total:,} "
-                f"({100*trainable/max(total,1):.1f}%)"
+                f"[Finetune] Trainable params: {trainable:,} / {total:,} ({100 * trainable / max(total, 1):.1f}%)"
             )
 
         # Prune frozen params from the optimizer so GradScaler only tracks
@@ -224,9 +226,7 @@ class Trainer:
         if prof_ctx is not None:
             prof_ctx.start()
             if self.logger:
-                self.logger.info(
-                    f"[Profiler] epoch {epoch}: started – trace → {self.profiler_dir}"
-                )
+                self.logger.info(f"[Profiler] epoch {epoch}: started – trace → {self.profiler_dir}")
 
         for batch in train_loader:
             batch_id += 1
@@ -234,10 +234,10 @@ class Trainer:
             # ---- data → device (labelled for profiler) --------------------
             with torch.profiler.record_function("data_loading"):
                 images, metadata, targets, masks = batch
-                images   = images.to(self.device, non_blocking=True)
+                images = images.to(self.device, non_blocking=True)
                 metadata = metadata.to(self.device, non_blocking=True)
-                targets  = [t.to(self.device, non_blocking=True) for t in targets]
-                masks    = [m.to(self.device, non_blocking=True) for m in masks]
+                targets = [t.to(self.device, non_blocking=True) for t in targets]
+                masks = [m.to(self.device, non_blocking=True) for m in masks]
 
             # For trainable task heads, if the masks indicate no valid samples for all the tasks to be trained, we can skip the forward and backward pass to save computation. This is especially beneficial when using selective fine-tuning with a small subset of trainable heads.
             if self.trainable_task_heads is not None:
@@ -246,7 +246,9 @@ class Trainer:
                 # Check if any of the trainable tasks have valid samples in this batch
                 if not any(masks[i].bool().any() for i in trainable_indices):
                     if self.logger:
-                        self.logger.info(f"Batch {batch_id}: No valid samples for trainable tasks — skipping forward/backward.")
+                        self.logger.info(
+                            f"Batch {batch_id}: No valid samples for trainable tasks — skipping forward/backward."
+                        )
                     continue
 
             self.optimizer.zero_grad()
@@ -279,16 +281,20 @@ class Trainer:
 
             if any(torch.isnan(output).any() for output in outputs):
                 self.logger.error("NaN detected in model outputs")
-                self.logger.error(f"Input images stats: min={images.min():.3f}, max={images.max():.3f}, mean={images.mean():.3f}")
-                self.logger.error(f"Input metadata stats: min={metadata.min():.3f}, max={metadata.max():.3f}, mean={metadata.mean():.3f}")
-                raise RuntimeError("NaN outputs detected - stopping training")    
-            
+                self.logger.error(
+                    f"Input images stats: min={images.min():.3f}, max={images.max():.3f}, mean={images.mean():.3f}"
+                )
+                self.logger.error(
+                    f"Input metadata stats: min={metadata.min():.3f}, max={metadata.max():.3f}, mean={metadata.mean():.3f}"
+                )
+                raise RuntimeError("NaN outputs detected - stopping training")
+
             if DEBUG_MODE:
                 # Loss after scaling
                 if self.use_mixed_precision:
                     scaled_loss = loss * self.scaler.get_scale()
                     self.logger.info(f"Scaled loss: {scaled_loss.item():.6e}")
-            
+
             # ---- backward + optimiser step (labelled for profiler) --------
             with torch.profiler.record_function("backward_optimizer"):
                 if self.use_mixed_precision:
@@ -318,7 +324,7 @@ class Trainer:
 
             if self.use_mixed_precision:
                 self.scaler.unscale_(self.optimizer)
-                
+
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=0.5)
 
             if self.use_mixed_precision:
@@ -338,8 +344,10 @@ class Trainer:
 
             # Optional prints (reduced frequency to avoid log spam)
             if self.logger and batch_id % 100 == 0:  # Log every 100 batches instead of every batch
-                self.logger.info(f"Batch {batch_id}: Scale: {last_scale:.6e}, LR: {self.optimizer.param_groups[0]['lr']:.2e}")
-                
+                self.logger.info(
+                    f"Batch {batch_id}: Scale: {last_scale:.6e}, LR: {self.optimizer.param_groups[0]['lr']:.2e}"
+                )
+
             # Log scale issues
             if last_scale < 1.0:
                 self.logger.warning(f"Gradient scale very low: {last_scale:.6e} - possible gradient overflow")
@@ -354,13 +362,13 @@ class Trainer:
             indiv_list = []
             if isinstance(indiv_losses, (list, tuple)):
                 indiv_list = [float(x) for x in indiv_losses]
-            elif hasattr(indiv_losses, 'detach'):
+            elif hasattr(indiv_losses, "detach"):
                 try:
                     indiv_list = [float(x) for x in indiv_losses.detach().cpu().numpy().tolist()]
                 except Exception:
                     pass
 
-            current_lr_tb = self.optimizer.param_groups[0]['lr']
+            current_lr_tb = self.optimizer.param_groups[0]["lr"]
             amp_scale_tb = current_scale
 
             log_batch_metrics(
@@ -372,7 +380,7 @@ class Trainer:
                 individual_losses=indiv_list,
                 accuracies=None,
                 lr=current_lr_tb,
-                amp_scale=amp_scale_tb
+                amp_scale=amp_scale_tb,
             )
 
         avg_train_loss = train_loss_accum / max(1, len(train_loader))
@@ -439,11 +447,7 @@ class Trainer:
 
         return avg_val_loss, avg_ind_val, avg_val_acc
 
-    def fit(self,
-            train_loader: DataLoader,
-            val_loader: DataLoader,
-            num_epochs: int,
-            save_path: Union[str, bytes]):
+    def fit(self, train_loader: DataLoader, val_loader: DataLoader, num_epochs: int, save_path: Union[str, bytes]):
         best_val_loss = float("inf")
         epochs_no_improve = 0
 
@@ -452,15 +456,12 @@ class Trainer:
             avg_val_loss, avg_ind_val, avg_val_acc = self.validate_epoch(val_loader, epoch)
 
             if self.logger:
-                self.logger.info(f"Epoch {epoch+1} Train Loss: {avg_train_loss:.4f} (Task losses: {avg_ind_train})")
-                self.logger.info(f"Epoch {epoch+1} Val   Loss: {avg_val_loss:.4f} (Task losses: {avg_ind_val})")
+                self.logger.info(f"Epoch {epoch + 1} Train Loss: {avg_train_loss:.4f} (Task losses: {avg_ind_train})")
+                self.logger.info(f"Epoch {epoch + 1} Val   Loss: {avg_val_loss:.4f} (Task losses: {avg_ind_val})")
 
             # TB epoch logging
-            if self.tb_logger and getattr(self.tb_logger, 'enabled', False):
-                indiv_epoch = {
-                    'train': [float(x) for x in avg_ind_train],
-                    'val': [float(x) for x in avg_ind_val]
-                }
+            if self.tb_logger and getattr(self.tb_logger, "enabled", False):
+                indiv_epoch = {"train": [float(x) for x in avg_ind_train], "val": [float(x) for x in avg_ind_val]}
                 log_training_metrics(
                     self.tb_logger,
                     epoch=epoch,
@@ -471,33 +472,41 @@ class Trainer:
                     individual_losses=indiv_epoch,
                     optimizer=self.optimizer,
                     model=self.model,
-                    scaler=self.scaler
+                    scaler=self.scaler,
                 )
 
             # Early stopping + checkpoint
             if avg_val_loss < best_val_loss:
                 if self.logger:
-                    self.logger.info(f"Validation loss improved from {best_val_loss:.4f} to {avg_val_loss:.4f}. Saving model.")
+                    self.logger.info(
+                        f"Validation loss improved from {best_val_loss:.4f} to {avg_val_loss:.4f}. Saving model."
+                    )
                 best_val_loss = avg_val_loss
                 epochs_no_improve = 0
-                torch.save({
-                    'model_state_dict': self.model.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict(),
-                    'scheduler_state_dict': self.scheduler.state_dict(),
-                    'scaler_state_dict': self.scaler.state_dict()
-                }, save_path)
+                torch.save(
+                    {
+                        "model_state_dict": self.model.state_dict(),
+                        "optimizer_state_dict": self.optimizer.state_dict(),
+                        "scheduler_state_dict": self.scheduler.state_dict(),
+                        "scaler_state_dict": self.scaler.state_dict(),
+                    },
+                    save_path,
+                )
             else:
                 epochs_no_improve += 1
                 if self.logger:
                     self.logger.info(f"No improvement for {epochs_no_improve} epochs.")
-                    self.logger.info(f"Saving latest model checkpoint.")
+                    self.logger.info("Saving latest model checkpoint.")
                 # Save the current model as the latest checkpoint
-                torch.save({
-                    'model_state_dict': self.model.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict(),
-                    'scheduler_state_dict': self.scheduler.state_dict(),
-                    'scaler_state_dict': self.scaler.state_dict()
-                }, Path(save_path).with_name("latest_model.pth"))
+                torch.save(
+                    {
+                        "model_state_dict": self.model.state_dict(),
+                        "optimizer_state_dict": self.optimizer.state_dict(),
+                        "scheduler_state_dict": self.scheduler.state_dict(),
+                        "scaler_state_dict": self.scaler.state_dict(),
+                    },
+                    Path(save_path).with_name("latest_model.pth"),
+                )
 
             if (epochs_no_improve >= self.patience) and (epoch >= 0.7 * num_epochs):
                 if self.logger:
@@ -531,23 +540,21 @@ class Trainer:
                     outputs = self.model(images, metadata)
                     test_acc.append(self._classification_accuracies(outputs, targets, masks))
 
-
         avg_test_acc = np.mean(test_acc, axis=0)
 
         if self.logger:
             self.logger.info(f"Test Accuracy: {avg_test_acc}")
 
-        if self.tb_logger and getattr(self.tb_logger, 'enabled', False):
-            self.tb_logger.log_scalar('Test/Accuracy', float(np.mean(avg_test_acc)), 0)
+        if self.tb_logger and getattr(self.tb_logger, "enabled", False):
+            self.tb_logger.log_scalar("Test/Accuracy", float(np.mean(avg_test_acc)), 0)
             for i, acc in enumerate(avg_test_acc):
-                self.tb_logger.log_scalar(f'Test/Task_{i}_Accuracy', float(acc), 0)
+                self.tb_logger.log_scalar(f"Test/Task_{i}_Accuracy", float(acc), 0)
             self.tb_logger.flush()
         return avg_test_acc
-    
+
     def load_checkpoint(self, checkpoint_path: Union[str, bytes]):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
-
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        self.scaler.load_state_dict(checkpoint["scaler_state_dict"])

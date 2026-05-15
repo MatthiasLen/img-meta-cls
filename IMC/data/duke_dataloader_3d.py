@@ -20,7 +20,6 @@ Date: 2026
 
 import logging
 import os
-import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -31,15 +30,15 @@ import SimpleITK as sitk
 from natsort import natsorted
 from pydicom import dcmread
 from torch.utils.data import Dataset
-from scipy.ndimage import zoom
 
 from IMC.data.augment import augment3d
 from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES
 
-logger = logging.getLogger('IMC')
+logger = logging.getLogger("IMC")
 # Environment variables should be set by the training script
 LOCAL_DATASET_PATH = os.getenv("LOCAL_DATASET_PATH")
 LABEL_CSV_PATH = os.getenv("LABEL_CSV_PATH")
+
 
 class DukeLiverDataset3D(Dataset):
     """PyTorch Dataset for loading 3D liver MRI volumes from the Duke dataset.
@@ -158,8 +157,8 @@ class DukeLiverDataset3D(Dataset):
                 self.labels.append(row.to_dict())
 
             if self.num_samples is not None:
-                self.path_list = self.path_list[:self.num_samples]
-                self.labels = self.labels[:self.num_samples]
+                self.path_list = self.path_list[: self.num_samples]
+                self.labels = self.labels[: self.num_samples]
 
         except FileNotFoundError as e:
             raise FileNotFoundError(f"Required CSV file not found: {e}")
@@ -213,14 +212,15 @@ class DukeLiverDataset3D(Dataset):
             pad_after = pad_depth - pad_before
 
             padding = [(pad_before, pad_after), (0, 0), (0, 0)]
-            if volume.ndim == 4: # for channels
-                padding.append((0,0))
+            if volume.ndim == 4:  # for channels
+                padding.append((0, 0))
 
-            return np.pad(volume, padding, mode='constant', constant_values=0)
+            return np.pad(volume, padding, mode="constant", constant_values=0)
 
-    def __getitem__(self, idx: int) -> Union[
-        Tuple[torch.Tensor, str],
-        Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]
+    def __getitem__(
+        self, idx: int
+    ) -> Union[
+        Tuple[torch.Tensor, str], Tuple[torch.Tensor, torch.Tensor, Tuple[torch.Tensor, ...], Tuple[torch.Tensor, ...]]
     ]:
         """Load and return a single volumetric sample.
 
@@ -270,7 +270,7 @@ class DukeLiverDataset3D(Dataset):
                 raise IOError(f"No DICOM files found in {series_path}")
 
             slices = [dcmread(sf).pixel_array for sf in slice_files]
-            volume = np.stack(slices, axis=0).astype(np.float32) # (D_native, H_native, W_native)
+            volume = np.stack(slices, axis=0).astype(np.float32)  # (D_native, H_native, W_native)
 
             # 2. Skip per-volume z-score normalization; handled later in trainer
 
@@ -334,13 +334,13 @@ class DukeLiverDataset3D(Dataset):
             dummy_mask = torch.tensor(False)
             return dummy_volume, dummy_metadata, (dummy_target,), (dummy_mask,)
 
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logger.info("DukeLiverDataset3D Demo")
 
-    # Set dummy env vars for testing
-    os.environ["LOCAL_DATASET_PATH"] = "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2"
-    os.environ["LABEL_CSV_PATH"] = "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv"
+    if not os.environ.get("LOCAL_DATASET_PATH") or not os.environ.get("LABEL_CSV_PATH"):
+        raise RuntimeError("Set LOCAL_DATASET_PATH and LABEL_CSV_PATH before running the DukeLiverDataset3D demo.")
 
     # Create dataset instance
     dataset = DukeLiverDataset3D(

@@ -1,87 +1,71 @@
-# IMC Net7 – PyramidPooling3DClassifier on Duke and ADNI
+# IMC Net7 - PyramidPooling3DClassifier on Duke
 
-## Overview
+`net7` contains the Duke Liver MRI training and inference scripts for the 3D
+volumetric baseline described in the paper.
 
-`net7` contains experiment scripts for training and evaluating
-**Network version 7** ([`IMC.network07.PyramidPooling3DClassifier`](../network07.py))
-on two volumetric MRI datasets:
-
-| Dataset  | Tasks                                                                    |
-|----------|--------------------------------------------------------------------------|
-| **Duke** | All Duke liver MRI sequence classification tasks                          |
-| **ADNI** | `label_AcquisitionPlane`, `label_SequenceContrast`, `label_Localizer`    |
-
-Both datasets share the identical network architecture and training recipe.
-One script invocation trains a single fold; run five invocations in parallel
-(``--fold 0 … 4``) to complete a full 5-fold cross-validation.
+Unlike `net4_duke`, each invocation of `train_duke.py` trains a single fold.
+Run one process per fold to complete the full 5-fold Duke evaluation.
 
 ---
 
-## Directory layout
+## Included entry points
 
-```
+```text
 IMC/net7/
-├── __init__.py        – Package entry point (sub-module documentation)
-├── train_duke.py      – Single-fold CV training on Duke
-├── infer_duke.py      – Batch inference on Duke
-├── train_adni.py      – Single-fold CV training on ADNI
-├── infer_adni.py      – Batch inference on ADNI
-└── README.md          – This file
+├── __init__.py
+├── train_duke.py
+├── infer_duke.py
+└── README.md
 ```
-
-Superseded originals from `net7_duke/` and `net7_adni/` are kept in those
-directories as reference (archived with `.bak` extension).
 
 ---
 
 ## Architecture
 
-```
-Input: (B, 1, D, H, W)    volumetric MRI series
-            │
-            ▼
-3-D CNN Backbone           ← ResNet3D or DenseNet3D variant
-(B, C_f, D', H', W')
-            │
-            ▼
-3-D Pyramid Pooling        ← multi-scale spatial aggregation
-(B, C_pp)
-            │
-            ▼
-MLP Projection (optional)  ← Linear → BN → GELU → Dropout
-(B, embedding_dim)
-            │
-            ▼
-MultiTaskHead              ← one linear classifier per task
-list[(B, n_classes_i)]     ← per-task logit tensors
+`IMC.network07.PyramidPooling3DClassifier` combines:
+
+- a 3D CNN backbone,
+- 3D pyramid pooling,
+- an optional projection MLP,
+- a multi-task classification head.
+
+```text
+Input volume (B, 1, D, H, W)
+    -> 3D CNN backbone
+    -> 3D pyramid pooling
+    -> projection MLP
+    -> MultiTaskHead
+    -> per-task logits
 ```
 
-**Backbone options** (``--backbone_type``):
+Supported backbone choices:
 
-| Value             | Description                                   |
-|-------------------|-----------------------------------------------|
-| `resnet`          | Custom ResNet3D (configurable via `--backbone_channels`, `--backbone_blocks`) |
-| `densenet121`     | DenseNet-121 3-D variant                      |
-| `densenet169`     | DenseNet-169 3-D variant                      |
-| `densenet201`     | DenseNet-201 3-D variant                      |
-| `densenet_custom` | DenseNet with custom block layout             |
+| `--backbone_type` | Description |
+|---|---|
+| `resnet` | Custom ResNet3D backbone |
+| `densenet121` | DenseNet-121 3D variant |
+| `densenet169` | DenseNet-169 3D variant |
+| `densenet201` | DenseNet-201 3D variant |
+| `densenet_custom` | DenseNet with custom block layout |
 
 ---
 
 ## Training configuration
 
-- AdamW optimiser with per-parameter-group weight decay (biases/norms excluded).
-- Linear-warmup + cosine-decay LR schedule (10 % warmup steps).
-- Multi-task cross-entropy loss with label smoothing = 0.1.
-- Mixed precision via `torch.amp.GradScaler`.
-- Early stopping controlled by `--patience`.
-- Per-fold `config.json`, `model_architecture.txt`, and `fold_results.json`.
+The Duke net7 training script uses:
+
+- AdamW with weight-decay grouping,
+- linear warmup plus cosine LR decay,
+- multi-task cross-entropy with label smoothing,
+- mixed precision,
+- early stopping,
+- per-fold config and checkpoint outputs.
 
 ---
 
-## Quick-start: Duke
+## Quick-start
 
-### Train (single fold)
+### Train one fold
 
 ```bash
 python -m IMC.net7.train_duke \
@@ -91,7 +75,7 @@ python -m IMC.net7.train_duke \
     --num_epochs 50
 ```
 
-### Train (all 5 folds in parallel)
+### Train all 5 folds
 
 ```bash
 for i in 0 1 2 3 4; do
@@ -102,24 +86,7 @@ for i in 0 1 2 3 4; do
 done
 ```
 
-| Argument           | Default       | Description                                          |
-|--------------------|---------------|------------------------------------------------------|
-| `--fold`           | *(required)*  | Test fold index (0–4)                                |
-| `--backbone_type`  | `resnet`      | 3-D CNN backbone                                     |
-| `--backbone_channels`| `32`        | Initial backbone channels                            |
-| `--backbone_blocks`| `2 2 2 2`    | ResNet block counts per stage                        |
-| `--growth_rate`    | `12`          | DenseNet growth rate k                               |
-| `--embedding_dim`  | `512`         | MLP projection dimension                             |
-| `--target_depth`   | `64`          | Target depth for 3-D volumes                         |
-| `--augment_config` | `DEFAULT3D`   | 3-D augmentation config for train splits             |
-| `--batch_size`     | `4`           | Mini-batch size                                      |
-| `--num_epochs`     | `50`          | Maximum epochs per fold                              |
-| `--lr`             | `1e-6`        | Base learning rate for AdamW                         |
-| `--patience`       | `30`          | Early-stopping patience (epochs)                     |
-| `--gpu`            | `0`           | CUDA device index (`-1` for CPU)                     |
-| `--base_log_dir`   | auto          | Shared root log dir for all folds                    |
-
-### Inference (Duke)
+### Run inference
 
 ```bash
 python -m IMC.net7.infer_duke \
@@ -128,127 +95,87 @@ python -m IMC.net7.infer_duke \
     --split fold_0
 ```
 
-| Argument           | Default       | Description                                          |
-|--------------------|---------------|------------------------------------------------------|
-| `--ckpt`              | *(required)*  | Path to checkpoint (`best_model.pth`)                |
-| `--output_dir`        | *(required)*  | Directory where `predictions.csv` is saved           |
-| `--split`             | *(all data)*  | Comma-separated fold names, e.g. `fold_0,fold_1`     |
-| `--target_depth`      | `64`          | Must match training                                  |
-| `--backbone_type`     | `resnet`      | Must match training                                  |
-| `--backbone_channels` | `32`          | Must match training                                  |
-| `--backbone_blocks`   | `2 2 2 2`     | ResNet block counts per stage (must match training)  |
-| `--growth_rate`       | `12`          | DenseNet growth rate (must match training)           |
-| `--embedding_dim`     | `512`         | MLP projection dimension (must match training)       |
-| `--batch_size`        | `8`           | Batch size for inference                             |
-| `--eval`              | `false`       | Run evaluation against ground truth                  |
-| `--gpu`               | `0`           | CUDA device index                                    |
+---
+
+## Key training arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `--fold` | required | Test fold index |
+| `--n_folds` | `5` | Number of folds |
+| `--backbone_type` | `resnet` | 3D CNN backbone |
+| `--backbone_channels` | `32` | Initial backbone channels |
+| `--backbone_blocks` | `2 2 2 2` | ResNet block counts |
+| `--growth_rate` | `12` | DenseNet growth rate |
+| `--embedding_dim` | `512` | Projection dimension |
+| `--target_depth` | `64` | Target depth for input volumes |
+| `--augment_config` | `DEFAULT3D` | 3D augmentation preset |
+| `--batch_size` | `4` | Mini-batch size |
+| `--num_epochs` | `50` | Maximum training epochs |
+| `--lr` | `1e-6` | Base learning rate |
+| `--patience` | `30` | Early-stopping patience |
+| `--base_log_dir` | auto | Shared output directory for all folds |
+
+## Key inference arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `--ckpt` | required | Path to trained checkpoint |
+| `--output_dir` | required | Directory for predictions |
+| `--split` | all data | Comma-separated fold names |
+| `--target_depth` | `64` | Must match training |
+| `--backbone_type` | `resnet` | Must match training |
+| `--backbone_channels` | `32` | Must match training |
+| `--backbone_blocks` | `2 2 2 2` | Must match training |
+| `--growth_rate` | `12` | Must match training |
+| `--embedding_dim` | `512` | Must match training |
+| `--batch_size` | `8` | Inference batch size |
+| `--eval` | off | Evaluate predictions against labels |
 
 ---
 
-## Quick-start: ADNI
+## Required dataset configuration
 
-### Train (single fold)
+The Duke net7 scripts expect explicit dataset configuration through environment
+variables or CLI overrides.
 
-```bash
-python -m IMC.net7.train_adni \
-    --fold 0 \
-    --backbone_type resnet \
-    --gpu 0 \
-    --num_epochs 50
-```
+Required environment variables:
 
-### Train (all 5 folds in parallel)
+- `LOCAL_DATASET_PATH`
+- `LABEL_CSV_PATH`
 
-```bash
-for i in 0 1 2 3 4; do
-    python -m IMC.net7.train_adni \
-        --fold $i \
-        --base_log_dir ./logs/net07_adni_cv \
-        --gpu 0 &
-done
-```
+Equivalent CLI overrides:
 
-| Argument           | Default       | Description                                          |
-|--------------------|---------------|------------------------------------------------------|
-| `--fold`           | *(required)*  | Test fold index (0–4)                                |
-| `--n_slices`       | `16`          | Slices per series (= depth for network07)            |
-| `--img_size`       | `224`         | Spatial resolution                                   |
-| `--backbone_type`  | `resnet`      | 3-D CNN backbone                                     |
-| `--backbone_channels`| `32`        | Initial backbone channels                            |
-| `--backbone_blocks`| `2 2 2 2`    | ResNet block counts per stage                        |
-| `--growth_rate`    | `12`          | DenseNet growth rate k                               |
-| `--embedding_dim`  | `512`         | MLP projection dimension                             |
-| `--augment_config` | `DEFAULT3D`   | 3-D augmentation config for train splits             |
-| `--batch_size`     | `4`           | Mini-batch size                                      |
-| `--num_epochs`     | `50`          | Maximum epochs per fold                              |
-| `--lr`             | `1e-6`        | Base learning rate for AdamW                         |
-| `--patience`       | `30`          | Early-stopping patience (epochs)                     |
-| `--gpu`            | `0`           | CUDA device index (`-1` for CPU)                     |
-| `--base_log_dir`   | auto          | Shared root log dir for all folds                    |
-
-### Inference (ADNI)
-
-```bash
-python -m IMC.net7.infer_adni \
-    --ckpt ./logs/net07_adni_cv/fold_0/best_model.pth \
-    --output_dir ./infer_out/adni/fold_0 \
-    --split fold_0
-```
-
-| Argument           | Default       | Description                                          |
-|--------------------|---------------|------------------------------------------------------|
-| `--ckpt`              | *(required)*  | Path to checkpoint (`best_model.pth`)                |
-| `--output_dir`        | *(required)*  | Directory where `predictions.csv` is saved           |
-| `--split`             | *(all data)*  | Comma-separated fold names, e.g. `fold_0,fold_1`     |
-| `--n_slices`          | `16`          | Must match training                                  |
-| `--img_size`          | `224`         | Must match training                                  |
-| `--backbone_type`     | `resnet`      | Must match training                                  |
-| `--backbone_channels` | `32`          | Must match training                                  |
-| `--backbone_blocks`   | `2 2 2 2`     | ResNet block counts per stage (must match training)  |
-| `--growth_rate`       | `12`          | DenseNet growth rate (must match training)           |
-| `--embedding_dim`     | `512`         | MLP projection dimension (must match training)       |
-| `--batch_size`        | `8`           | Batch size for inference                             |
-| `--eval`              | `false`       | Evaluate against ground truth (accuracy + macro-F1)  |
-| `--gpu`               | `0`           | CUDA device index                                    |
-
----
-
-## Dataset environment variables
-
-### Duke
-
-| Variable             | Description                                   |
-|----------------------|-----------------------------------------------|
-| `LOCAL_DATASET_PATH` | Root folder of the Duke MRI image dataset     |
-| `LABEL_CSV_PATH`     | Path to the Duke label CSV                    |
-| `DEBUG_MODE`         | Set to `"1"` for extra debug output           |
-
-### ADNI
-
-| Variable                 | Description                                   |
-|--------------------------|-----------------------------------------------|
-| `ADNI_LOCAL_DATASET_PATH`| Root folder of the ADNI brain MRI dataset     |
-| `ADNI_LABEL_CSV_PATH`    | Path to the ADNI label CSV                    |
-| `DEBUG_MODE`             | Set to `"1"` for extra debug output           |
-
-All variables can be overridden via the corresponding `--dataset_path` and
-`--label_csv_path` CLI arguments.
+- `--dataset_path`
+- `--label_csv_path`
 
 ---
 
 ## Output structure
 
-```
-logs/net07_<dataset>_cv/
+```text
+logs/net07_duke_cv/
 ├── fold_0/
-│   ├── config.json              – All hyperparameters for this fold
-│   ├── model_architecture.txt   – Model string representation
-│   ├── best_model.pth           – Best checkpoint (lowest val loss)
-│   ├── fold_results.json        – Test-set results for this fold
-│   └── *.log / events.out.tfevents.*
-├── fold_1/ … fold_4/
-
-infer_out/<dataset>/fold_0/
-├── predictions.csv              – Filepath + predicted class per task
-└── evaluation.csv               – Per-task accuracy and macro-F1 (if --eval)
+│   ├── config.json
+│   ├── model_architecture.txt
+│   ├── best_model.pth
+│   └── fold_results.json
+├── fold_1/
+├── fold_2/
+├── fold_3/
+└── fold_4/
 ```
+
+```text
+infer_out/duke/fold_0/
+├── predictions.csv
+└── evaluation.csv  # when --eval is enabled
+```
+
+---
+
+## Notes
+
+- This public repository snapshot documents only the Duke workflow.
+- The scripts no longer assume author-specific filesystem defaults; dataset
+  paths must be provided explicitly.

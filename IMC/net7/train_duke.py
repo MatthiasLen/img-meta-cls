@@ -57,7 +57,6 @@ import os
 import time
 from typing import List
 
-import pandas as pd
 import torch
 import torch.nn as nn
 from torch.optim import AdamW, Optimizer
@@ -73,15 +72,6 @@ from IMC.network07 import PyramidPooling3DClassifier
 from IMC.nn.multi_task_loss import MultiTaskLoss
 from IMC.tensorboard_logging import setup_combined_logging
 from IMC.trainer import Trainer
-
-# ---------------------------------------------------------------------------
-# Default dataset paths
-# ---------------------------------------------------------------------------
-_DATASET_PATH = "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2"
-_LABEL_CSV_PATH = (
-    "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv"
-)
-
 
 # ---------------------------------------------------------------------------
 # Weight initialisation
@@ -232,9 +222,7 @@ def _validate_backbone(value: str) -> str:
         argparse.ArgumentTypeError: If *value* is not in the allowed list.
     """
     if value not in _VALID_BACKBONES:
-        raise argparse.ArgumentTypeError(
-            f"Invalid backbone_type '{value}'. Valid options: {_VALID_BACKBONES}"
-        )
+        raise argparse.ArgumentTypeError(f"Invalid backbone_type '{value}'. Valid options: {_VALID_BACKBONES}")
     return value
 
 
@@ -244,10 +232,19 @@ def _validate_backbone(value: str) -> str:
 
 
 def _configure_dataset_env(args: argparse.Namespace) -> None:
-    """Set Duke dataset environment variables from CLI args (if provided)."""
+    """Apply CLI path overrides and validate Duke dataset configuration."""
     os.environ["DEBUG_MODE"] = "1" if args.debug else "0"
-    os.environ["LOCAL_DATASET_PATH"] = args.dataset_path or _DATASET_PATH
-    os.environ["LABEL_CSV_PATH"] = args.label_csv_path or _LABEL_CSV_PATH
+    if args.dataset_path:
+        os.environ["LOCAL_DATASET_PATH"] = args.dataset_path
+    if args.label_csv_path:
+        os.environ["LABEL_CSV_PATH"] = args.label_csv_path
+
+    missing = [name for name in ("LOCAL_DATASET_PATH", "LABEL_CSV_PATH") if not os.environ.get(name)]
+    if missing:
+        raise ValueError(
+            "Missing Duke dataset configuration. Set the environment variables "
+            f"{', '.join(missing)} or pass the corresponding CLI overrides."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -386,11 +383,7 @@ def main(args: argparse.Namespace) -> None:
     os.makedirs(fold_log_dir, exist_ok=True)
     experiment_name = f"fold_{fold_idx}_net07_duke_{args.backbone_type}"
 
-    device = (
-        torch.device(f"cuda:{args.gpu}")
-        if args.gpu >= 0 and torch.cuda.is_available()
-        else torch.device("cpu")
-    )
+    device = torch.device(f"cuda:{args.gpu}") if args.gpu >= 0 and torch.cuda.is_available() else torch.device("cpu")
 
     # ---- Logging ----
     logger, log_path, tb_logger = setup_combined_logging(
@@ -435,16 +428,16 @@ def main(args: argparse.Namespace) -> None:
 
     log_training_start(logger, config=config)
 
-    print(f"Dataset environment configured:")
+    print("Dataset environment configured:")
     print(f"  DEBUG_MODE = {os.environ['DEBUG_MODE']}")
     print(f"  LOCAL_DATASET_PATH = {os.environ['LOCAL_DATASET_PATH']}")
     print(f"  LABEL_CSV_PATH = {os.environ['LABEL_CSV_PATH']}")
 
     with capture_console_to_log(logger):
-
         # ---- Datasets ----
         print("Creating dataloaders …")
         from IMC.data.duke_dataloader_3d import DukeLiverDataset3D
+
         train_dataset = DukeLiverDataset3D(
             split=[f"fold_{f}" for f in train_folds],
             target_depth=args.target_depth,
@@ -502,7 +495,7 @@ def main(args: argparse.Namespace) -> None:
             label_smoothing=0.1,
             task_names=list(DUKE_ORIGINAL_LABEL_NAMES.keys()),
         )
-        scaler = torch.amp.GradScaler("cuda", init_scale=2 ** 8)
+        scaler = torch.amp.GradScaler("cuda", init_scale=2**8)
         task_weights = [1.0] * len(cl_d)
 
         # ---- Trainer ----

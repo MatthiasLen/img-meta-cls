@@ -4,8 +4,10 @@ import logging
 import os
 from typing import List
 
-logger = logging.getLogger('IMC')
+logger = logging.getLogger("IMC")
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
+
+
 class MultiTaskLoss(torch.nn.Module):
     """
     A flexible multi-task loss function for medical image classification.
@@ -29,7 +31,7 @@ class MultiTaskLoss(torch.nn.Module):
 
     The total loss is the weighted sum of the individual task losses.
     """
-    
+
     def __init__(
         self,
         label_smoothing: float = 0.1,
@@ -68,14 +70,15 @@ class MultiTaskLoss(torch.nn.Module):
         if task_name in self._task_ce:
             ce = self._task_ce[task_name]
             if ce.weight is not None:
-                target = device if dtype is None else (device, dtype)
                 needs_move = ce.weight.device != device or (dtype is not None and ce.weight.dtype != dtype)
                 if needs_move:
                     ce.weight = ce.weight.to(device=device, dtype=torch.float32 if dtype is None else dtype)
             return ce
         return self._default_ce
 
-    def forward(self, preds: tuple, targets: tuple, masks: tuple, task_weights: List[float] | None = None) -> tuple[torch.Tensor, list]:
+    def forward(
+        self, preds: tuple, targets: tuple, masks: tuple, task_weights: List[float] | None = None
+    ) -> tuple[torch.Tensor, list]:
         """
         Calculates the multi-task loss.
 
@@ -118,7 +121,7 @@ class MultiTaskLoss(torch.nn.Module):
                 # Binary classification task
                 task_loss = self.bce_loss(valid_preds.squeeze(1), valid_targets.float())
             else:
-                # Multi-class classification task (with optional per-task class weights)    
+                # Multi-class classification task (with optional per-task class weights)
 
                 task_loss = self._get_ce_loss(task_name, pred.device, pred.dtype)(valid_preds, valid_targets.long())
 

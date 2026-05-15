@@ -86,7 +86,7 @@ from IMC.helper import (
     log_training_end,
     log_training_start,
 )
-from IMC.net4.helper import build_model
+from IMC.net4_duke.helper import build_model
 from IMC.nn.multi_task_loss import MultiTaskLoss
 from IMC.tensorboard_logging import setup_combined_logging
 
@@ -94,6 +94,7 @@ from IMC.tensorboard_logging import setup_combined_logging
 # ---------------------------------------------------------------------------
 # Weight initialisation
 # ---------------------------------------------------------------------------
+
 
 def init_weights(module: nn.Module) -> None:
     """Initialise weights for selected module types.
@@ -123,6 +124,7 @@ def init_weights(module: nn.Module) -> None:
 # ---------------------------------------------------------------------------
 # Optimiser
 # ---------------------------------------------------------------------------
+
 
 def create_optimizer(
     model: nn.Module,
@@ -171,6 +173,7 @@ def create_optimizer(
 # Learning-rate scheduler
 # ---------------------------------------------------------------------------
 
+
 def get_scheduler(
     optimizer: Optimizer,
     warmup_steps: int,
@@ -218,6 +221,7 @@ def get_scheduler(
 # Argument parser
 # ---------------------------------------------------------------------------
 
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the Duke 5-fold CV training script.
 
@@ -225,10 +229,7 @@ def parse_args() -> argparse.Namespace:
         Populated :class:`argparse.Namespace` with all resolved arguments.
     """
     parser = argparse.ArgumentParser(
-        description=(
-            "5-fold cross-validation training for IMC Network v04 "
-            "on the Duke Liver Dataset."
-        ),
+        description=("5-fold cross-validation training for IMC Network v04 on the Duke Liver Dataset."),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -255,29 +256,40 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--batch_size", type=int, default=16, help="Mini-batch size.")
     parser.add_argument(
-        "--num_epochs", type=int, default=30,
+        "--num_epochs",
+        type=int,
+        default=30,
         help="Maximum number of training epochs per fold.",
     )
     parser.add_argument("--lr", type=float, default=1e-6, help="Base learning rate for AdamW.")
     parser.add_argument(
-        "--gpu", type=int, default=0,
+        "--gpu",
+        type=int,
+        default=0,
         help="CUDA device index.  Use -1 for CPU.",
     )
     parser.add_argument(
-        "--ckpt", type=str, default=None,
+        "--ckpt",
+        type=str,
+        default=None,
         help="Path to a checkpoint to resume from (applied to every fold).",
     )
     parser.add_argument(
-        "--patience", type=int, default=30,
+        "--patience",
+        type=int,
+        default=30,
         help="Early-stopping patience in epochs without validation improvement.",
     )
     parser.add_argument(
-        "--log_dir", type=str, default="./logs",
+        "--log_dir",
+        type=str,
+        default="./logs",
         help="Root directory for logs and checkpoints.",
     )
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG_MODE.")
     parser.add_argument(
-        "--incl_regression", action="store_true",
+        "--incl_regression",
+        action="store_true",
         help="Include a regression head for the ContrastPhase task.",
     )
 
@@ -287,49 +299,64 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help=(
-            "Comma-separated fold indices to train (e.g. '0,1,2').  "
-            "Defaults to all folds (0 through --n_folds - 1)."
+            "Comma-separated fold indices to train (e.g. '0,1,2').  Defaults to all folds (0 through --n_folds - 1)."
         ),
     )
     parser.add_argument(
-        "--n_folds", type=int, default=5,
+        "--n_folds",
+        type=int,
+        default=5,
         help="Total number of folds in the cross-validation scheme.",
     )
 
     # ----------------------------------------------- data / environment
     parser.add_argument(
-        "--dataset_path", type=str, default=None,
+        "--dataset_path",
+        type=str,
+        default=None,
         help="Override LOCAL_DATASET_PATH environment variable.",
     )
     parser.add_argument(
-        "--metadata_path", type=str, default=None,
+        "--metadata_path",
+        type=str,
+        default=None,
         help="Override METADATA_PATH environment variable.",
     )
     parser.add_argument(
-        "--label_csv_path", type=str, default=None,
+        "--label_csv_path",
+        type=str,
+        default=None,
         help="Override LABEL_CSV_PATH environment variable.",
     )
     parser.add_argument(
-        "--use_preselected_features", action="store_true",
+        "--use_preselected_features",
+        action="store_true",
         help="Use the pre-selected metadata feature subset.",
     )
     parser.add_argument(
-        "--num_workers", type=int, default=4,
+        "--num_workers",
+        type=int,
+        default=4,
         help="Number of DataLoader worker processes.",
     )
     parser.add_argument(
-        "--n_slices", type=int, default=3,
+        "--n_slices",
+        type=int,
+        default=3,
         help="Number of slices to sample from each MRI volume.",
+    )
+    parser.add_argument(
+        "--num_samples",
+        type=int,
+        default=None,
+        help="Cap dataset size per split (useful for smoke-tests).",
     )
 
     # ----------------------------------------------- image mode
     parser.add_argument(
         "--vanilla_image_classifier",
         action="store_true",
-        help=(
-            "Use SimpleImageBasedClassifier instead of ImageBasedClassifier.  "
-            "Active only when --modality image."
-        ),
+        help=("Use SimpleImageBasedClassifier instead of ImageBasedClassifier.  Active only when --modality image."),
     )
 
     # ----------------------------------------- combined mode: fusion
@@ -396,14 +423,13 @@ def parse_args() -> argparse.Namespace:
 # Dataset environment setup
 # ---------------------------------------------------------------------------
 
+
 def _configure_dataset_env(args: argparse.Namespace) -> None:
     """Apply Duke-specific dataset environment variables.
 
-    Sets ``LOCAL_DATASET_PATH``, ``METADATA_PATH``, and ``LABEL_CSV_PATH``
-    to their Duke-dataset defaults when the variables are not already present
-    in the environment.  CLI path overrides (``--dataset_path``,
-    ``--metadata_path``, ``--label_csv_path``) always take precedence over
-    both automatic defaults and previously set environment variables.
+    Applies CLI path overrides for ``LOCAL_DATASET_PATH``, ``METADATA_PATH``,
+    and ``LABEL_CSV_PATH`` when provided and validates that all required Duke
+    dataset variables are configured before training starts.
 
     Also sets ``DEBUG_MODE`` to ``"1"`` when ``--debug`` is passed.
 
@@ -411,20 +437,6 @@ def _configure_dataset_env(args: argparse.Namespace) -> None:
         args: Parsed arguments from :func:`parse_args`.
     """
     os.environ["DEBUG_MODE"] = "1" if args.debug else "0"
-
-    # Duke-specific default paths
-    os.environ.setdefault(
-        "LOCAL_DATASET_PATH",
-        "/home/tuan.truong/data/Duke_Liver_Dataset(MRI)_v2",
-    )
-    os.environ.setdefault(
-        "METADATA_PATH",
-        "/home/tuan.truong/codebase/IMC/labels/duke_encoded_metadata_20260107.parquet",
-    )
-    os.environ.setdefault(
-        "LABEL_CSV_PATH",
-        "/home/tuan.truong/codebase/IMC/labels/labels_Duke_as_pvai_withFS_v4_local.csv",
-    )
 
     # CLI overrides always win
     if args.dataset_path:
@@ -434,10 +446,18 @@ def _configure_dataset_env(args: argparse.Namespace) -> None:
     if args.label_csv_path:
         os.environ["LABEL_CSV_PATH"] = args.label_csv_path
 
+    missing = [name for name in ("LOCAL_DATASET_PATH", "METADATA_PATH", "LABEL_CSV_PATH") if not os.environ.get(name)]
+    if missing:
+        raise ValueError(
+            "Missing Duke dataset configuration. Set the environment variables "
+            f"{', '.join(missing)} or pass the corresponding CLI overrides."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Main training routine
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     """Run 5-fold cross-validation training on the Duke Liver Dataset.
@@ -483,10 +503,7 @@ def main() -> None:
         folds_to_run = [int(f) for f in args.folds.split(",")]
         for f in folds_to_run:
             if f < 0 or f >= n_folds:
-                raise ValueError(
-                    f"Fold index {f} is out of range [0, {n_folds - 1}].  "
-                    f"Adjust --folds or --n_folds."
-                )
+                raise ValueError(f"Fold index {f} is out of range [0, {n_folds - 1}].  Adjust --folds or --n_folds.")
     else:
         folds_to_run = list(range(n_folds))
 
@@ -495,11 +512,7 @@ def main() -> None:
     base_log_dir = os.path.join(args.log_dir, f"{timestamp}_5fold_cv")
     os.makedirs(base_log_dir, exist_ok=True)
 
-    device = (
-        torch.device(f"cuda:{args.gpu}")
-        if args.gpu >= 0 and torch.cuda.is_available()
-        else torch.device("cpu")
-    )
+    device = torch.device(f"cuda:{args.gpu}") if args.gpu >= 0 and torch.cuda.is_available() else torch.device("cpu")
 
     # ---- import dataloader (env vars must be set first) --------------------
     from IMC.data.duke_dataloader_local import LiverDataset, DUKE_ORIGINAL_LABEL_NAMES
@@ -523,10 +536,7 @@ def main() -> None:
         train_folds = [f for f in range(n_folds) if f not in (test_fold, val_fold)]
 
         print(f"\n{'=' * 80}")
-        print(
-            f"FOLD {fold_idx} / {n_folds - 1}  |  "
-            f"train={train_folds}  val={val_fold}  test={test_fold}"
-        )
+        print(f"FOLD {fold_idx} / {n_folds - 1}  |  train={train_folds}  val={val_fold}  test={test_fold}")
         print("=" * 80)
 
         # ---- per-fold logging ----------------------------------------------
@@ -576,7 +586,7 @@ def main() -> None:
             print("Creating dataloaders...")
 
             _dl_kwargs = dict(
-                num_samples=None,
+                num_samples=args.num_samples,
                 augment_conf="NONE2D",
                 aggregated_metadata=False,
                 use_preselected_features=args.use_preselected_features,
@@ -669,7 +679,7 @@ def main() -> None:
                 incl_regression=args.incl_regression,
                 task_names=list(DUKE_ORIGINAL_LABEL_NAMES.keys()),
             )
-            scaler = torch.cuda.amp.GradScaler(init_scale=2 ** 8)
+            scaler = torch.cuda.amp.GradScaler(init_scale=2**8)
 
             # ---- trainer ---------------------------------------------------
             from IMC.trainer import Trainer

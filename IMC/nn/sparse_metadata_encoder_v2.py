@@ -1,22 +1,22 @@
-
 import torch
 import torch.nn as nn
-import logging
+
 
 class ResidualMLP(nn.Module):
     """
     Residual Multi-Layer Perceptron (MLP) with Layer Normalization.
-    
+
     Implements a residual connection around a two-layer MLP with GELU activation.
     The residual connection helps with gradient flow and enables deeper networks.
-    
+
     Architecture:
         Input -> Linear -> GELU -> Linear -> Add residual -> LayerNorm -> Output
-    
+
     Args:
         dim (int): Input and output dimension.
         hidden (int): Hidden layer dimension.
     """
+
     def __init__(self, dim, hidden):
         super().__init__()
         self.lin1 = nn.Linear(dim, hidden)
@@ -26,25 +26,26 @@ class ResidualMLP(nn.Module):
     def forward(self, x):
         """
         Forward pass with residual connection.
-        
+
         Args:
             x (torch.Tensor): Input tensor of shape (..., dim).
-            
+
         Returns:
             torch.Tensor: Output tensor of shape (..., dim) after residual connection and normalization.
         """
-        h =  torch.nn.functional.gelu(self.lin1(x))
+        h = torch.nn.functional.gelu(self.lin1(x))
         h = self.lin2(h)
         return self.norm(x + h)
+
 
 class SparseMetadataEncoder(nn.Module):
     """
     Sparse Metadata Encoder V2 with Transformer Aggregation and CLS Token.
-    
+
     This is an advanced version of the sparse metadata encoder that uses a transformer-based
     architecture for aggregating features. Unlike V1 which uses simple sum/mean pooling,
     V2 employs self-attention to learn complex relationships between features.
-    
+
     Key Features:
     - **Dense Processing**: Unlike V1, this processes all features (both observed and missing)
       in a dense manner, making it more suitable for transformer processing.
@@ -58,7 +59,7 @@ class SparseMetadataEncoder(nn.Module):
       (including CLS token) to capture complex feature interactions.
     - **Attention-based Aggregation**: The final CLS token embedding serves as the aggregated
       representation, learned through self-attention rather than simple pooling.
-    
+
     Architecture Overview:
         1. Generate feature index embeddings for all features
         2. For observed features: Apply FiLM modulation based on their values
@@ -67,7 +68,7 @@ class SparseMetadataEncoder(nn.Module):
         5. Process through multi-layer transformer
         6. Extract CLS token output as aggregated representation
         7. Apply post-processing MLP
-    
+
     """
 
     def __init__(
@@ -78,11 +79,11 @@ class SparseMetadataEncoder(nn.Module):
         out_dim: int = 128,
         transformer_heads: int = 4,
         transformer_layers: int = 4,
-        reduce: bool = True
+        reduce: bool = True,
     ):
         """
         Initialize the Sparse Metadata Encoder V2.
-        
+
         Args:
             num_features (int): Total number of features in the metadata vector.
             index_embed_dim (int, optional): Dimension of feature embeddings and transformer
@@ -114,7 +115,7 @@ class SparseMetadataEncoder(nn.Module):
         self.value_mlp = nn.Sequential(
             nn.Linear(1 + index_embed_dim, value_mlp_dim),
             nn.GELU(),
-            nn.Linear(value_mlp_dim, index_embed_dim * 2) # alpha and beta parameters
+            nn.Linear(value_mlp_dim, index_embed_dim * 2),  # alpha and beta parameters
         )
 
         # Transformer Encoder: Processes the full sequence with self-attention
@@ -124,29 +125,25 @@ class SparseMetadataEncoder(nn.Module):
             d_model=index_embed_dim,
             nhead=transformer_heads,
             dim_feedforward=index_embed_dim * 4,
-            batch_first=True  # Input shape: (batch, seq, feature)
+            batch_first=True,  # Input shape: (batch, seq, feature)
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=transformer_layers)
 
         # Post-processing: Refines the CLS token and projects to output dimension
-        self.post = nn.Sequential(
-            nn.LayerNorm(index_embed_dim),
-            nn.Linear(index_embed_dim, out_dim),
-            nn.GELU()
-        )
+        self.post = nn.Sequential(nn.LayerNorm(index_embed_dim), nn.Linear(index_embed_dim, out_dim), nn.GELU())
         self.reduce = reduce
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass to encode sparse metadata using transformer aggregation.
-        
+
         Args:
             x (torch.Tensor): Input tensor of shape (B, S, F) where:
                 - B is the batch size
                 - S is the sequence length (e.g., number of slices)
                 - F is the number of features
                 NaN values indicate missing features.
-                
+
         Returns:
             torch.Tensor: Encoded metadata of shape:
                 - (B, out_dim) if reduce=True (mean pooling over sequence)
@@ -168,21 +165,21 @@ class SparseMetadataEncoder(nn.Module):
         # ------------------------------------------------------------------
         # Create masks for observed vs missing features
         # ------------------------------------------------------------------
-        nan_mask = torch.isnan(x_flat)                # (B*S, F) - True where missing
-        observed_mask = ~nan_mask                     # (B*S, F) - True where observed
-        observed_mask_f = observed_mask.unsqueeze(-1) # (B*S, F, 1) - for broadcasting
+        nan_mask = torch.isnan(x_flat)  # (B*S, F) - True where missing
+        observed_mask = ~nan_mask  # (B*S, F) - True where observed
+        observed_mask_f = observed_mask.unsqueeze(-1)  # (B*S, F, 1) - for broadcasting
 
         # ------------------------------------------------------------------
         # Apply FiLM modulation to observed values (dense computation with masking)
         # ------------------------------------------------------------------
         # Replace NaNs with zeros for safe processing (will be masked out later)
         safe_vals = torch.where(nan_mask, torch.zeros_like(x_flat), x_flat)
-        vals = safe_vals.unsqueeze(-1)                # (B*S, F, 1)
+        vals = safe_vals.unsqueeze(-1)  # (B*S, F, 1)
 
         # Prepare input for value MLP: concatenate [value, feature_embedding]
-        val_input = torch.cat([vals, idx_emb], dim=-1)   # (B*S, F, 1+index_embed_dim)
+        val_input = torch.cat([vals, idx_emb], dim=-1)  # (B*S, F, 1+index_embed_dim)
         # Predict FiLM parameters for all features (even missing ones, but we'll mask them)
-        val_params = self.value_mlp(val_input)           # (B*S, F, 2*index_embed_dim)
+        val_params = self.value_mlp(val_input)  # (B*S, F, 2*index_embed_dim)
 
         # Split into alpha (scaling) and beta (shift) parameters
         alpha, beta = val_params.chunk(2, dim=-1)
@@ -228,13 +225,14 @@ class SparseMetadataEncoder(nn.Module):
 
         return out
 
+
 if __name__ == "__main__":
     B, S, F = 4, 8, 10
     x = torch.randn(B, S, F)
-    x[torch.rand_like(x) < 0.5] = float('nan')
+    x[torch.rand_like(x) < 0.5] = float("nan")
 
     print("Input tensor (sample from batch):")
-    print(x[0,0,:])
+    print(x[0, 0, :])
 
     encoder = SparseMetadataEncoder(num_features=F, out_dim=128)
     z = encoder(x)
