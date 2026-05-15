@@ -168,16 +168,22 @@ class MultiSliceImageEncoder(nn.Module):
                     "DINOv3 backbones require IMC_DINOV3_REPO to point to a local dinov3 checkout."
                 )
 
+            if pretrained and not weights_dir:
+                raise ValueError(
+                    "pretrained=True requires IMC_DINOV3_WEIGHTS_DIR to be set. "
+                    "Set the environment variable or pass pretrained=False to use random weights."
+                )
+
             if backbone_name == "dinov3_vits16":
-                weights_path = os.path.join(weights_dir, "dinov3_vits16_pretrain_lvd1689m-08c60483.pth") if pretrained and weights_dir else None
+                weights_path = os.path.join(weights_dir, "dinov3_vits16_pretrain_lvd1689m-08c60483.pth") if pretrained else None
                 self.cnn = torch.hub.load(repo_dir, 'dinov3_vits16', source='local', weights=weights_path)
                 self.slice_feat_dim = 384
             elif backbone_name == "dinov3_vitb16":
-                weights_path = os.path.join(weights_dir, "dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth") if pretrained and weights_dir else None
+                weights_path = os.path.join(weights_dir, "dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth") if pretrained else None
                 self.cnn = torch.hub.load(repo_dir, 'dinov3_vitb16', source='local', weights=weights_path)
                 self.slice_feat_dim = 768
             elif backbone_name == "dinov3_vitl16":
-                weights_path = os.path.join(weights_dir, "dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth") if pretrained and weights_dir else None
+                weights_path = os.path.join(weights_dir, "dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth") if pretrained else None
                 self.cnn = torch.hub.load(repo_dir, 'dinov3_vitl16', source='local', weights=weights_path)
                 self.slice_feat_dim = 1024
             else:
