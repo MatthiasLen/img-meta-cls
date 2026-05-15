@@ -373,7 +373,7 @@ Example usage:
     print("\n" + "="*80)
     print("EVALUATION COMPLETE")
     print("="*80)
-    print(f"\nGenerated files:")
+    print("\nGenerated files:")
     for name, path in output_files.items():
         print(f"  - {name}: {path}")
     

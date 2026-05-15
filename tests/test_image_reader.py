@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -332,7 +331,6 @@ def _make_minimal_df(index_values, columns=("enc_x",)):
 def _patch_load(cls, path, extra_attrs=None):
     """Return a context-manager that replaces _load_metadata_and_labels with
     a stub that sets the minimal attributes required by __init__."""
-    import pandas as pd
 
     def _stub(self, split):
         self.path_list = ["series/001"]

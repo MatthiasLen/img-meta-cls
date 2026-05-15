@@ -14,9 +14,9 @@ The paper studies DICOM series classification under three practical failure mode
 
 The codebase also includes Duke baselines used for comparison in the paper:
 
-- `net4_duke`: multimodal cross-attention fusion,
-- `net6`: 2D image-only baseline,
-- `net7`: 3D volumetric image-only baseline,
+- [`net4_duke`](IMC/net4_duke/README.md): Duke training, inference, and CV workflow for the multimodal cross-attention model,
+- [`net6`](IMC/net6/README.md): 2D image-only baseline,
+- [`net7`](IMC/net7/README.md): 3D volumetric image-only baseline,
 - `xgboost`: metadata-only baseline.
 
 ## Repository Scope
@@ -73,6 +73,8 @@ uv run pytest -q
 
 ### Network 4: multimodal image + metadata fusion on Duke
 
+See the [Network v04 architecture README](IMC/net4/README.md) for the shared multimodal model design and the [Duke workflow README](IMC/net4_duke/README.md) for training, inference, and CV details.
+
 Train 5-fold cross-validation:
 
 ```bash
@@ -98,6 +100,8 @@ uv run python -m IMC.net4_duke.summarize_cv ./logs/<run>
 
 ### Network 6: 2D image-only Duke baseline
 
+See the [Network 6 README](IMC/net6/README.md) for architecture notes, RF gating, and full Duke usage.
+
 ```bash
 uv run python -m IMC.net6.train_duke --gpu 0
 ```
@@ -117,6 +121,8 @@ uv run python -m IMC.net6.infer_duke \
 ```
 
 ### Network 7: 3D volumetric Duke baseline
+
+See the [Network 7 README](IMC/net7/README.md) for the volumetric architecture, fold-wise training pattern, and CLI details.
 
 Train a single fold:
 
@@ -155,7 +161,11 @@ IMC/
 tests/         unit tests for loaders, encoders, and Duke workflows
 ```
 
-## Notes 
+For a more detailed breakdown of the reusable neural network modules, including
+the different metadata encoder variants and their role in the paper code, see
+[`IMC/nn/README.md`](IMC/nn/README.md).
+
+## Notes On Reproducibility
 
 - Dataset configuration must be supplied explicitly through env vars or CLI args.
 - Some optional backbones and older experimental modules remain in the codebase but are not the main public reproduction path for the paper.
@@ -172,3 +182,7 @@ If you use this repository, please cite the paper:
   year={2026}
 }
 ```
+
+## License
+
+This repository is licensed under the Apache License 2.0. See `LICENSE`.

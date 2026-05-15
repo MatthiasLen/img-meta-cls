@@ -1,6 +1,4 @@
 import matplotlib.pyplot as plt
-import torchvision.utils as vutils
-import torch
 import os
 import logging
 import sys
@@ -240,7 +238,7 @@ def setup_params_logging(log_dir="./logs",
         logger, log_path = setup_params_logging("resnet_training")
         # Creates: ./logs/resnet_training_20241024_143052.log
     """
-    log_file_path = os.path.join(log_dir, f"params.log")
+    log_file_path = os.path.join(log_dir, "params.log")
     logger = logging.getLogger('IMC_params')
     logger.setLevel(logging.DEBUG)  # Set to lowest level, handlers will filter
 

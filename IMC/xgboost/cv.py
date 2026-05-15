@@ -255,7 +255,7 @@ overall_metrics = {
     'weighted_f1': overall_report['weighted avg']['f1-score']
 }
 
-print(f"\nOverall CV Performance:")
+print("\nOverall CV Performance:")
 print(f"  Total samples: {overall_metrics['total_samples']}")
 print(f"  Accuracy: {overall_metrics['accuracy']:.4f}")
 print(f"  Macro F1: {overall_metrics['macro_f1']:.4f}")
@@ -295,7 +295,7 @@ print(f"✓ Overall confusion matrix saved to {cm_overall_path}")
 # Compute per-class statistics across folds
 fold_class_metrics_df = pd.DataFrame(fold_class_metrics)
 fold_class_metrics_df.to_csv(os.path.join(OUTPUT_DIR, 'per_fold_class_metrics.csv'), index=False)
-print(f"✓ Per-fold per-class metrics saved")
+print("✓ Per-fold per-class metrics saved")
 
 class_stats_list = []
 for class_label in le.classes_:
@@ -569,7 +569,7 @@ print(f"✓ Detailed per-class metrics saved to {detailed_metrics_path}")
 # Generate markdown report
 report_path = os.path.join(OUTPUT_DIR, 'cv_report.md')
 with open(report_path, 'w') as f:
-    f.write(f"# XGBoost Cross-Validation Report\n\n")
+    f.write("# XGBoost Cross-Validation Report\n\n")
     f.write(f"**Date**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
     f.write(f"**Target Label**: {TARGET_LABEL}\n\n")
     f.write(f"**Number of Folds**: {len(folds)}\n\n")
@@ -712,7 +712,7 @@ with open(report_path, 'w') as f:
     
     f.write("## Confusion Matrices\n\n")
     f.write("### Overall\n\n")
-    f.write(f"![Overall Confusion Matrix](confusion_matrix_overall.png)\n\n")
+    f.write("![Overall Confusion Matrix](confusion_matrix_overall.png)\n\n")
     
     f.write("### By Fold\n\n")
     for fold in folds:
@@ -754,22 +754,22 @@ with open(report_path, 'w') as f:
     
     f.write("## Files Generated\n\n")
     f.write("### Predictions\n")
-    f.write(f"- `predictions_all_folds.csv` - Combined predictions from all folds\n")
-    f.write(f"- `predictions_fold_[0-4].csv` - Per-fold predictions\n\n")
+    f.write("- `predictions_all_folds.csv` - Combined predictions from all folds\n")
+    f.write("- `predictions_fold_[0-4].csv` - Per-fold predictions\n\n")
     f.write("### Metrics\n")
-    f.write(f"- `fold_metrics_summary.csv` - Fold-level metrics summary\n")
-    f.write(f"- `overall_metrics.json` - Overall aggregated metrics\n")
-    f.write(f"- `detailed_metrics.csv` - Detailed per-class metrics (overall)\n")
-    f.write(f"- `per_fold_class_metrics.csv` - Per-class metrics for each fold\n")
-    f.write(f"- `class_statistics.csv` - Per-class statistics (mean, std, min, max, median)\n\n")
+    f.write("- `fold_metrics_summary.csv` - Fold-level metrics summary\n")
+    f.write("- `overall_metrics.json` - Overall aggregated metrics\n")
+    f.write("- `detailed_metrics.csv` - Detailed per-class metrics (overall)\n")
+    f.write("- `per_fold_class_metrics.csv` - Per-class metrics for each fold\n")
+    f.write("- `class_statistics.csv` - Per-class statistics (mean, std, min, max, median)\n\n")
     f.write("### Visualizations\n")
-    f.write(f"- `confusion_matrix_overall.png` - Overall confusion matrix\n")
-    f.write(f"- `confusion_matrix_fold_[0-4].png` - Per-fold confusion matrices\n")
-    f.write(f"- `performance_overview.png` - Fold-level performance comparison\n")
-    f.write(f"- `class_performance_across_folds.png` - Class metrics across folds (line plots)\n")
-    f.write(f"- `class_distribution_boxplots.png` - Distribution of class performance\n")
-    f.write(f"- `per_class_performance.png` - Per-class bar charts with error bars\n")
-    f.write(f"- `performance_heatmap.png` - Heatmap of class performance across folds\n")
+    f.write("- `confusion_matrix_overall.png` - Overall confusion matrix\n")
+    f.write("- `confusion_matrix_fold_[0-4].png` - Per-fold confusion matrices\n")
+    f.write("- `performance_overview.png` - Fold-level performance comparison\n")
+    f.write("- `class_performance_across_folds.png` - Class metrics across folds (line plots)\n")
+    f.write("- `class_distribution_boxplots.png` - Distribution of class performance\n")
+    f.write("- `per_class_performance.png` - Per-class bar charts with error bars\n")
+    f.write("- `performance_heatmap.png` - Heatmap of class performance across folds\n")
 
 print(f"✓ Comprehensive CV report saved to {report_path}")
 
@@ -778,7 +778,7 @@ print("CROSS-VALIDATION COMPLETE")
 print("="*80)
 print(f"\nAll results saved to: {OUTPUT_DIR}")
 
-print(f"\n📊 Overall Summary:")
+print("\n📊 Overall Summary:")
 print(f"  - Total samples: {overall_metrics['total_samples']}")
 print(f"  - Number of classes: {len(le.classes_)}")
 print(f"  - Overall accuracy: {overall_metrics['accuracy']:.4f}")
@@ -786,21 +786,21 @@ print(f"  - Mean fold accuracy: {fold_metrics_df['accuracy'].mean():.4f} ± {fol
 print(f"  - Overall macro F1: {overall_metrics['macro_f1']:.4f}")
 print(f"  - Mean fold macro F1: {fold_metrics_df['macro_f1'].mean():.4f} ± {fold_metrics_df['macro_f1'].std():.4f}")
 
-print(f"\n🏆 Best Performing Class (by F1):")
+print("\n🏆 Best Performing Class (by F1):")
 best_class = class_stats_df.loc[class_stats_df['f1_mean'].idxmax()]
 print(f"  - {best_class['class_display']}: {best_class['f1_mean']:.4f} ± {best_class['f1_std']:.4f}")
 
-print(f"\n⚠️  Worst Performing Class (by F1):")
+print("\n⚠️  Worst Performing Class (by F1):")
 worst_class = class_stats_df.loc[class_stats_df['f1_mean'].idxmin()]
 print(f"  - {worst_class['class_display']}: {worst_class['f1_mean']:.4f} ± {worst_class['f1_std']:.4f}")
 
-print(f"\n📈 Generated Visualizations:")
-print(f"  - Fold-level performance comparison")
-print(f"  - Class performance across folds (line plots)")
-print(f"  - Class distribution boxplots")
-print(f"  - Per-class bar charts with error bars")
-print(f"  - Performance heatmaps (classes × folds)")
-print(f"  - Confusion matrices (overall + per fold)")
+print("\n📈 Generated Visualizations:")
+print("  - Fold-level performance comparison")
+print("  - Class performance across folds (line plots)")
+print("  - Class distribution boxplots")
+print("  - Per-class bar charts with error bars")
+print("  - Performance heatmaps (classes × folds)")
+print("  - Confusion matrices (overall + per fold)")
 
 print("\n📄 View the full report at:")
 print(f"  {report_path}")

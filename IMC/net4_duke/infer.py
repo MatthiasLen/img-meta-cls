@@ -549,7 +549,7 @@ def main() -> None:
 
     num_classes_dict = dataloader.dataset.get_n_labels()
     metadata_input_dim = dataloader.dataset.num_metadata_features
-    print(f"\nModel configuration:")
+    print("\nModel configuration:")
     print(f"  Backbone        : {args.img_enc_backbone}")
     print(f"  Metadata dim    : {metadata_input_dim}")
     print(f"  Tasks           : {list(num_classes_dict.keys())}")

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import time
-import math
 import numpy as np
 from sklearn import logger
 import torch
@@ -490,7 +488,7 @@ class Trainer:
                 epochs_no_improve += 1
                 if self.logger:
                     self.logger.info(f"No improvement for {epochs_no_improve} epochs.")
-                    self.logger.info(f"Saving latest model checkpoint.")
+                    self.logger.info("Saving latest model checkpoint.")
                 # Save the current model as the latest checkpoint
                 torch.save({
                     'model_state_dict': self.model.state_dict(),
