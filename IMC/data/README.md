@@ -15,17 +15,17 @@ series folder to a classification label and a cross-validation fold.
 | Column | Type | Description |
 |---|---|---|
 | `Filepath` | `str` | Relative path to the DICOM series folder (relative to `LOCAL_DATASET_PATH`). |
-| `SequenceType_Code` | `str` | Raw sequence label string (e.g. `"AX T2w"`). |
-| `SequenceType_Code_norm` | `str` | Normalised letter code (`A`–`M`, see table below). |
+| `SequenceType_Code` | `str` | Fine-grained letter code assigned during annotation (e.g. `"C"`, `"O"`, `"Q"`). No grouping is applied; each annotated sub-type has its own letter. |
+| `SequenceType_Code_norm` | `str` | Normalised letter code (`A`–`M`, see table below). Multiple fine-grained codes representing the same sequence family are merged into a single letter. |
 | `split` | `str` | Cross-validation fold assignment (`fold_0` … `fold_4`). |
 
 ### Class mapping
 
 The normalised letter code is defined by `LABEL_NAME_MAPS` in
-[`constants.py`](constants.py). Multiple raw label strings can map to the same
-letter (e.g. all Arterial T1w sub-types map to codes `C`, `O`, or `Q` but all
-belong to the `"Arterial T1w"` group). The grouping is the responsibility of
-the annotation process.
+[`constants.py`](constants.py). Fine-grained `SequenceType_Code` letters that
+represent the same sequence family are merged into a single
+`SequenceType_Code_norm` letter (e.g. Arterial sub-types `C`, `O`, `Q` in the
+original annotation all map to the same normalised class).
 
 | Letter(s) | Human-readable name |
 |---|---|
@@ -47,12 +47,12 @@ the annotation process.
 
 ```
 Filepath,SequenceType_Code,SequenceType_Code_norm,split
-series/patient001/T2ax,AX T2w,A,fold_0
-series/patient001/T1fat,AX FatSat T1w,B,fold_0
-series/patient002/T1art,Arterial T1w,C,fold_1
-series/patient002/dwi,AX DWI,I,fold_2
-series/patient003/mrcp,MRCP,D,fold_3
-series/patient003/loc,Localizer,L,fold_4
+series/patient001/T2ax,A,A,fold_0
+series/patient001/T1fat,B,B,fold_0
+series/patient002/T1art,O,C,fold_1
+series/patient002/dwi,I,I,fold_2
+series/patient003/mrcp,D,D,fold_3
+series/patient003/loc,L,L,fold_4
 ```
 
 > **Note:** The `Filepath` values must match the paths stored in the metadata
