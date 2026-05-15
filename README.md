@@ -21,7 +21,7 @@ The codebase also includes Duke baselines used for comparison in the paper:
 - [`net4_duke`](IMC/net4_duke/README.md): Duke training, inference, and CV workflow for the multimodal cross-attention model,
 - [`net6`](IMC/net6/README.md): 2D image-only baseline,
 - [`net7`](IMC/net7/README.md): 3D volumetric image-only baseline,
-- `xgboost`: metadata-only baseline.
+- [`xgboost`](IMC/xgboost/README.md): metadata-only baseline.
 
 ## Repository Scope
 
@@ -156,6 +156,8 @@ uv run python -m IMC.net7.infer_duke \
 ```
 
 ### Metadata-only XGBoost baseline
+
+See the [XGBoost baseline README](IMC/xgboost/README.md) for the metadata-only Duke workflow and output files.
 
 ```bash
 uv run python -m IMC.xgboost.cv
