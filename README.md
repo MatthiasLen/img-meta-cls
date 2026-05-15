@@ -155,13 +155,16 @@ IMC/
 tests/         unit tests for loaders, encoders, and Duke workflows
 ```
 
+<<<<<<< HEAD
 For a more detailed breakdown of the reusable neural network modules, including
 the different metadata encoder variants and their role in the paper code, see
 `IMC/nn/README.md`.
 
 ## Notes On Reproducibility
+=======
+## Notes 
+>>>>>>> 11abd66f1095aa34f2724fc7b1106b09089e9913
 
-- The scripts no longer assume author-specific filesystem paths.
 - Dataset configuration must be supplied explicitly through env vars or CLI args.
 - Some optional backbones and older experimental modules remain in the codebase but are not the main public reproduction path for the paper.
 
@@ -177,7 +180,10 @@ If you use this repository, please cite the paper:
   year={2026}
 }
 ```
+<<<<<<< HEAD
 
 ## License
 
 This repository is licensed under the Apache License 2.0. See `LICENSE`.
+=======
+>>>>>>> 11abd66f1095aa34f2724fc7b1106b09089e9913
