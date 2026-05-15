@@ -53,6 +53,7 @@ def _rand_input(nan_prob: float = 0.8, seed: int = 0) -> torch.Tensor:
 # 1. Smoke / forward pass
 # ---------------------------------------------------------------------------
 
+
 class TestForwardPass:
     def test_output_shape(self):
         enc = _make_encoder()
@@ -77,6 +78,7 @@ class TestForwardPass:
 # ---------------------------------------------------------------------------
 # 2. NaN handling
 # ---------------------------------------------------------------------------
+
 
 class TestNaNHandling:
     """Encoder must handle all combinations of NaN patterns gracefully."""
@@ -119,6 +121,7 @@ class TestNaNHandling:
 # 3. learn_missing_emb flag
 # ---------------------------------------------------------------------------
 
+
 class TestLearnMissingEmb:
     def test_output_shape_with_learned_emb(self):
         enc = _make_encoder(learn_missing_emb=True)
@@ -141,9 +144,7 @@ class TestLearnMissingEmb:
     def test_missing_emb_is_trainable_parameter(self):
         enc = _make_encoder(learn_missing_emb=True)
         param_names = {n for n, _ in enc.named_parameters()}
-        assert "missing_emb" in param_names, (
-            "missing_emb should be a trainable parameter when learn_missing_emb=True"
-        )
+        assert "missing_emb" in param_names, "missing_emb should be a trainable parameter when learn_missing_emb=True"
 
     def test_missing_emb_receives_gradients(self):
         # Construct encoder in train mode so gradients are computed
@@ -169,6 +170,7 @@ class TestLearnMissingEmb:
 # 4. Backward-compatibility: default missing_emb buffer is zeros
 # ---------------------------------------------------------------------------
 
+
 class TestBackwardCompatibility:
     def test_missing_emb_buffer_is_zeros(self):
         enc = _make_encoder(learn_missing_emb=False)
@@ -180,6 +182,7 @@ class TestBackwardCompatibility:
 # ---------------------------------------------------------------------------
 # 5. Parameter counts
 # ---------------------------------------------------------------------------
+
 
 class TestParameterCounts:
     def _n_trainable(self, enc: SparseMetadataEncoder) -> int:
@@ -197,6 +200,4 @@ class TestParameterCounts:
         learned = _make_encoder(learn_missing_emb=True)
         expected_delta = learned.missing_emb.numel()
         delta = self._n_trainable(learned) - self._n_trainable(default)
-        assert delta == expected_delta, (
-            f"Expected delta={expected_delta}, got {delta}"
-        )
+        assert delta == expected_delta, f"Expected delta={expected_delta}, got {delta}"
