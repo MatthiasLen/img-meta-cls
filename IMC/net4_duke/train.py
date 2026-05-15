@@ -509,7 +509,6 @@ def main() -> None:
                 imputer_type=args.imputer_type,
                 sparse_enc_version=args.sparse_enc_version,
                 output_emb_dim=args.output_emb_dim,
-                incl_regression=args.incl_regression,
                 num_classes_dict=num_classes_dict,
                 metadata_input_dim=metadata_input_dim,
                 metadata_embed_dim=args.metadata_embed_dim,
@@ -537,7 +536,7 @@ def main() -> None:
             scheduler = get_scheduler(optimizer, warmup_steps, total_steps)
             criterion = MultiTaskLoss(
                 label_smoothing=0.1,
-                incl_regression=args.incl_regression,
+                incl_regression=False,
                 task_names=list(DUKE_ORIGINAL_LABEL_NAMES.keys()),
             )
             scaler = torch.cuda.amp.GradScaler(init_scale=2**8)
