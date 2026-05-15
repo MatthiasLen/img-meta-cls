@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/MatthiasLen/img-meta-cls/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MatthiasLen/img-meta-cls/actions/workflows/ci.yml)
 
-Research code accompanying the preprint "Revisiting Integration of Image and Metadata for DICOM Series Classification: Cross-Attention and Dictionary Learning" (arXiv:2602.23833).
+Code accompanying the preprint "Revisiting Integration of Image and Metadata for DICOM Series Classification: Cross-Attention and Dictionary Learning" [arXiv:2602.23833](https://arxiv.org/abs/2602.23833). 
+
+<img width="1126" height="760" alt="image" src="https://github.com/user-attachments/assets/6a277c5b-9c2b-4abb-acce-f15c6a4dcfba" />
 
 The repository implements multimodal DICOM series classification models that combine image content and acquisition metadata, together with image-only and metadata-only baselines. The main public experiment surface is the Duke Liver MRI benchmark used in the paper.
 
