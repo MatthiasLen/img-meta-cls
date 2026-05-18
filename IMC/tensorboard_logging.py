@@ -4,6 +4,7 @@ These functions integrate with the existing logging system in helper.py.
 """
 
 import os
+import warnings
 from datetime import datetime
 
 try:
@@ -34,7 +35,10 @@ class TensorBoardLogger:
         self.enabled = TENSORBOARD_AVAILABLE
 
         if not self.enabled:
-            print("Warning: TensorBoard not available. Install with: pip install tensorboard")
+            warnings.warn(
+                "TensorBoard not available. Install with: pip install tensorboard",
+                stacklevel=2,
+            )
             return
 
         if log_dir is None:
@@ -51,10 +55,8 @@ class TensorBoardLogger:
 
         try:
             self.writer = SummaryWriter(tb_log_dir)
-            print(f"TensorBoard logging to: {tb_log_dir}")
-            print(f"View with: tensorboard --logdir {log_dir}")
         except Exception as e:
-            print(f"Failed to initialize TensorBoard: {e}")
+            warnings.warn(f"Failed to initialize TensorBoard: {e}", stacklevel=2)
             self.enabled = False
 
     def log_scalar(self, tag, value, step):
@@ -88,7 +90,7 @@ class TensorBoardLogger:
             try:
                 self.writer.add_graph(model, input_to_model)
             except Exception as e:
-                print(f"Failed to log model graph: {e}")
+                warnings.warn(f"Failed to log model graph: {e}", stacklevel=2)
 
     def log_hyperparameters(self, hparam_dict, metric_dict=None):
         """Log hyperparameters."""

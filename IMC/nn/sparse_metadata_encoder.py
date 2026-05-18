@@ -51,7 +51,6 @@ class ValueNetwork(nn.Module):
     def __init__(self, index_embed_dim: int, value_mlp_dim: int, scalar_modulation: bool = False):
         super().__init__()
         value_mlp_out_dim = 2 if scalar_modulation else (2 * index_embed_dim)
-        print("Value Network output dim:", value_mlp_out_dim)
 
         self.lin1 = nn.Linear(1 + index_embed_dim, value_mlp_dim)
         self.lin2 = nn.Linear(value_mlp_dim, value_mlp_out_dim)

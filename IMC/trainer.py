@@ -13,7 +13,8 @@ from pathlib import Path
 import os
 
 DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
-print(f"DEBUG_MODE is {'ON' if DEBUG_MODE else 'OFF'}")
+if DEBUG_MODE:
+    print(f"DEBUG_MODE is {'ON' if DEBUG_MODE else 'OFF'}")
 
 
 def classification_losses(outputs: list, targets: list) -> list:
@@ -39,7 +40,8 @@ def classification_losses(outputs: list, targets: list) -> list:
         pred_cl = np.argmax(pred, axis=1)
         accuracy = np.mean(pred_cl == target_cl)
         accu_list.append(accuracy)
-        print(f"Task {i} Accuracy:", accuracy)
+        if DEBUG_MODE:
+            print(f"Task {i} Accuracy:", accuracy)
 
     return accu_list
 
