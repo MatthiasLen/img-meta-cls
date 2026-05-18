@@ -149,7 +149,7 @@ python -m IMC.net4_duke.train \
     --img_enc_backbone densenet121 \
     --metadata_enc_type sparse \
     --sparse_enc_version v1 \
-    --fusion_module_version v1 \
+    --fusion_module_version v2 \
     --gpu 0
 ```
 
@@ -197,8 +197,8 @@ python -m IMC.net4_duke.train \
 | `--log_dir` | `./logs` | Root output directory |
 | `--metadata_enc_type` | `imputer` | `imputer` / `sparse` |
 | `--sparse_enc_version` | `v1` | `v1` / `v2` / `v5` |
-| `--fusion_module_version` | `v1` | `v1` / `v2` / `concat` |
-| `--n_slices` | `3` | MRI slices sampled per volume (use `10` for the proposed method) |
+| `--fusion_module_version` | `v2` | `v1` / `v2` / `concat` |
+| `--n_slices` | `10` | MRI slices sampled per volume (use `10` for the proposed method) |
 | `--dataset_path` | env default | Override `LOCAL_DATASET_PATH` |
 | `--label_csv_path` | env default | Override `LABEL_CSV_PATH` |
 | `--metadata_path` | env default | Override `METADATA_PATH` |
@@ -264,9 +264,9 @@ done
 | `--gpu` | `0` | CUDA device index |
 | `--batch_size` | `16` | Inference mini-batch size |
 | `--run_eval` | off | Evaluate against ground-truth labels |
-| `--metadata_enc_type` | `imputer` | Must match training |
-| `--fusion_module_version` | `v1` | Must match training |
-| `--n_slices` | `3` | Must match training |
+| `--metadata_enc_type` | `sparse` | Must match training |
+| `--fusion_module_version` | `v2` | Must match training |
+| `--n_slices` | `10` | Must match training |
 
 ---
 

@@ -681,13 +681,13 @@ class TestDukeInferParseArgs:
 
         assert args.modality == "combined"
         assert args.img_enc_backbone == "densenet121"
-        assert args.fusion_module_version == "v1"
-        assert args.metadata_enc_type == "imputer"
+        assert args.fusion_module_version == "v2"
+        assert args.metadata_enc_type == "sparse"
         assert args.batch_size == 16
         assert args.gpu == 0
         assert args.run_eval is False
         assert args.folds is None
-        assert args.n_slices == 3
+        assert args.n_slices == 10
 
     def test_modality_required(self) -> None:
         """Omitting --modality must cause SystemExit."""
@@ -807,7 +807,8 @@ class TestDukeRunInference:
         images = _make_image_input(batch_size)
         metadata = _make_metadata_input(batch_size)
         paths = [f"/duke/series_{i:03d}" for i in range(batch_size)]
-        return _make_mock_duke_dataloader([(images, metadata, paths)])
+        uids = [f"uid_{i:03d}" for i in range(batch_size)]
+        return _make_mock_duke_dataloader([(images, metadata, paths, uids)])
 
     # --------------------------------------------------------- basic structure
 
@@ -862,8 +863,8 @@ class TestDukeRunInference:
         """Rows from multiple batches are concatenated."""
         from IMC.net4_duke.infer import run_inference
 
-        batch1 = (_make_image_input(2), _make_metadata_input(2), ["/a/1", "/a/2"])
-        batch2 = (_make_image_input(3), _make_metadata_input(3), ["/b/1", "/b/2", "/b/3"])
+        batch1 = (_make_image_input(2), _make_metadata_input(2), ["/a/1", "/a/2"], ["u1", "u2"])
+        batch2 = (_make_image_input(3), _make_metadata_input(3), ["/b/1", "/b/2", "/b/3"], ["u3", "u4", "u5"])
         dl = _make_mock_duke_dataloader([batch1, batch2])
 
         def flexible_fwd(imgs, meta):
@@ -919,7 +920,8 @@ class TestDukeRunInference:
         paths = [f"/duke/s{i}" for i in range(BATCH_SIZE)]
         images = _make_image_input(BATCH_SIZE)
         metadata = _make_metadata_input(BATCH_SIZE)
-        dl = _make_mock_duke_dataloader([(images, metadata, paths)])
+        uids = [f"uid_{i}" for i in range(BATCH_SIZE)]
+        dl = _make_mock_duke_dataloader([(images, metadata, paths, uids)])
         model = _make_mock_duke_model(BATCH_SIZE)
         df = run_inference(model, dl, torch.device("cpu"))
         assert list(df["Filepath"]) == paths
