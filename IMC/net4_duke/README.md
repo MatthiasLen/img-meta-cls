@@ -195,7 +195,7 @@ python -m IMC.net4_duke.train \
 | `--n_folds` | `5` | Total number of folds |
 | `--patience` | `30` | Early-stopping patience (epochs) |
 | `--log_dir` | `./logs` | Root output directory |
-| `--metadata_enc_type` | `imputer` | `imputer` / `sparse` |
+| `--metadata_enc_type` | `sparse` | `imputer` / `sparse` |
 | `--sparse_enc_version` | `v1` | `v1` / `v2` / `v5` |
 | `--fusion_module_version` | `v2` | `v1` / `v2` / `concat` |
 | `--n_slices` | `10` | MRI slices sampled per volume (use `10` for the proposed method) |
