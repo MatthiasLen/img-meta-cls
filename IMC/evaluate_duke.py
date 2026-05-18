@@ -14,7 +14,7 @@ try:
 except ImportError:
     sns = None
 import os
-from IMC.data.constants import DUKE_LABEL_NAMES, DUKE_ORIGINAL_LABEL_NAMES
+from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES
 
 
 def evaluate_performance(pred_values, true_values, label_names):
@@ -318,7 +318,7 @@ def generate_report(summary_df, detailed_metrics_df, output_files, output_dir):
         f.write("\n\n")
 
         f.write("## Confusion Matrices\n\n")
-        for task_name in DUKE_LABEL_NAMES.keys():
+        for task_name in DUKE_ORIGINAL_LABEL_NAMES.keys():
             cm_key = f"confusion_matrix_{task_name}"
             if cm_key in output_files:
                 f.write(f"### {task_name.replace('label_', '')}\n\n")

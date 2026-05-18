@@ -1,16 +1,20 @@
-"""DICOM metadata encoder — version 2 (legacy).
+"""DICOM metadata encoder — version 2.
 
-.. deprecated::
-    Use the YAML-config-driven system in ``IMC.data.metadata`` instead.
-    Drop-in replacements in ``IMC.data.dicom_tag_encoding_yaml``:
+This module reads raw DICOM tags from DICOM files, aggregates them per series,
+and encodes them into a flat numerical feature dictionary (``Dict[str, Any]``).
 
-    * ``generate_slicewise_metadata_vector_yaml`` replaces
-      ``generate_slicewise_metadata_vector``
-    * ``generate_series_metadata_vector_yaml`` replaces
-      ``generate_series_metadata_vector``
+The resulting feature dictionaries can be used as input to machine-learning
+models (e.g., Random Forest or neural network metadata encoder).
 
-    ``IMC/data/configs/metadata_encoding_v2_slicewise.yaml`` returns 119 features per slice, matching the output of ``generate_slicewise_metadata_vector``.
-    See ``IMC/data/metadata/README.md`` for full documentation.
+Typical usage::
+
+    from IMC.data.dicom_tag_encoding_v2 import generate_slicewise_metadata_vector
+
+    encoded_vectors, raw_tags = generate_slicewise_metadata_vector(slice_filenames)
+    # encoded_vectors is a List[Dict[str, Any]] with one dict per slice
+
+For batch processing and writing results to a Parquet file, use
+:mod:`IMC.data.encode_metadata`.
 """
 
 import logging
@@ -197,25 +201,30 @@ def compute_orientation(orientation_vector: Union[List[float], None]) -> Union[s
 
 
 def aggregate_dicom_tags(dicom_tags_df: pd.DataFrame) -> pd.DataFrame:
-    """Aggregate DICOM tags for all slices belonging to a DICOM series. Most
-    tags are aggregated by keeping the only unique value, or as "n={number of
-    unique values}" if multiple unique values exist.
+    """Aggregate DICOM tags for all slices belonging to a DICOM series.
 
-    Exceptions exist for:
-    - "ImagesInSeries": counts the number of slices
-    - "SeriesInstanceUID" and "SeriesDescription": returns the first value with an indication of multiple unique values
-    - "ImageOrientationPatient/AcquisitionPlane":
-            checks for orthogonal planes and returns "ORTHO" if multiple unique planes exist,
-            later checks for rotating planes and returns "ROT" if applicable.
+    Most tags are aggregated by keeping the single unique value, or
+    ``"n=<count>"`` when multiple unique values exist.
+
+    Exceptions:
+
+    - ``ImagesInSeries``: set to the total number of slices.
+    - ``SeriesInstanceUID`` and ``SeriesDescription``: first value is kept
+      with a ``"MultiN WithFirst=<value>"`` prefix when duplicates exist.
+    - ``ImageOrientationPatient`` / ``AcquisitionPlane``: returns
+      ``"ORTHO"`` when multiple orthogonal planes are detected, and
+      ``"ROT"`` when the number of unique orientation vectors matches the
+      number of slices (rotating acquisition).
 
     Args:
-        dicom_tags_df (pd.DataFrame): DataFrame containing DICOM tags for all slices in a series.
-        Assume Index named "Filepath" and "SeriesFilepath" column exists and to be used as index of the aggregated DataFrame.
-        Example columns:
-        "AngioFlag", "Columns", "DiffusionBValue", ...
+        dicom_tags_df: DataFrame containing DICOM tags for all slices in a
+            series.  The index must be named ``"Filepath"`` and a
+            ``"SeriesFilepath"`` column must be present (used as the index
+            of the returned DataFrame).  Typical columns include
+            ``"AngioFlag"``, ``"Columns"``, ``"DiffusionBValue"``, …
 
     Returns:
-        agg_dicom_tags_df ( pd.DataFrame): DataFrame with aggregated DICOM tags for the series. (One row)
+        Single-row DataFrame with aggregated DICOM tags for the series.
     """
 
     if "ImagesInSeries" not in dicom_tags_df.columns:
@@ -340,16 +349,17 @@ def encode_nonfixed_category(
 
 
 def encode_fixed_category(input_value: Union[str, None], name: str, values: List[str]) -> Dict[str, float]:
-    """Encodes a categorical value according to a fixed set of possible values.
+    """Encode a categorical value against a fixed set of possible values.
 
     Parameters:
-        name (str): Name of the category to encode.
-        values (list): possible values to encode.
+        input_value: Value to encode.  ``None`` is treated as missing.
+        name: Tag name used to construct output keys (``enc_{name}_{val}``).
+        values: Exhaustive list of expected category values.
 
     Returns:
-        Dict[str, float]:
-            Contains a key'enc_{name}_{val}' for each val in the values list,
-            If none of the possible values is found in the input_value, all keys are encoded as 2 (missing).
+        Dict with a key ``enc_{name}_{val}`` for each element of *values*:
+        ``1.0`` for the matching value, ``0.0`` for all others, or ``2.0``
+        for every key when *input_value* is ``None`` or not found in *values*.
     """
 
     if input_value is not None:
@@ -368,9 +378,9 @@ def encode_fixed_category(input_value: Union[str, None], name: str, values: List
 
 def encode_dicom_tags_by_version(
     dicom_tags_dict: Dict[str, Dict[str, Any]], encoding_version: str = "version_1"
-) -> Dict[str, np.recarray]:
+) -> Dict[str, Dict[str, Any]]:
     if encoding_version == "version_1":
-        encoded_dicom_tags_dict: Dict[str, np.recarray] = {}
+        encoded_dicom_tags_dict: Dict[str, Dict[str, Any]] = {}
         # iterate over each row in dicom_tags_df, which corresponds to one aggredated series or one slice
         for filepath, dicom_tags in dicom_tags_dict.items():
             encoded_tags_per_filepath = encode_dicom_tags_version_1(dicom_tags)
@@ -384,9 +394,9 @@ def encode_dicom_tags_by_version(
         raise NotImplementedError(f"Encoding version '{encoding_version}' is not implemented.")
 
 
-def encode_dicom_tags_version_1(dicom_tags: Dict[str, Any]) -> np.recarray:
+def encode_dicom_tags_version_1(dicom_tags: Dict[str, Any]) -> Dict[str, Any]:
     """Encode a dictionary of DICOM tags (aggregated DICOM tags of one series
-    or DICOM tags of one slice) into a numerical feature vector.
+    or DICOM tags of one slice) into a numerical feature dictionary.
 
     In this version:
       - encode missing values for categorical tags as value 2
@@ -396,10 +406,12 @@ def encode_dicom_tags_version_1(dicom_tags: Dict[str, Any]) -> np.recarray:
       - special handling of ImageOrientationPatient/AcquisitionPlane tag: compute from ImageOrientationPatient, or use aggregated values (ROT, ORTHO)
       - special handling of ContrastBolusAgent tag: encode whether empty string is present
       - add enc_ImagesInSeries from aggregation as additional feature
+
     Args:
-        dicom_tags (Dict[str, Any]): Dictionary containing DICOM tags.
+        dicom_tags: Dictionary containing DICOM tags.
+
     Returns:
-        encoded_dicom_tags (np.recarray): Encoded DICOM tags as a numpy recordarray.
+        Encoded DICOM tags as a plain ``Dict[str, Any]`` with sorted keys.
     """
 
     # define dicom tags, where features are encoded in a special way
@@ -584,23 +596,24 @@ def encode_dicom_tags_version_1(dicom_tags: Dict[str, Any]) -> np.recarray:
 
 def generate_series_metadata_vector(
     slice_filenames: List[str], version: str = "version_1"
-) -> Tuple[np.recarray, Dict[str, Dict[str, Any]]]:
-    """Generate a metadata vector for a given list of DICOM slice filenames
-    belonging to the same series by reading and processing DICOM tags. DICOM
-    tags are aggregated across all slices in the series and then encoded.
+) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
+    """Generate an encoded metadata vector for a DICOM series.
+
+    Reads DICOM tags from all slice files, aggregates them across the series,
+    and encodes the result into a flat numerical feature dictionary.
 
     Args:
-        slice_filenames (List[str]): List of file paths to the DICOM files belonging to the same series.
-        version (str): Version of the encoding scheme to use.
+        slice_filenames: List of file paths to the DICOM files belonging to
+            the same series.
+        version: Encoding scheme version to use (default ``"version_1"``).
+
     Returns:
-        dicom_tags_dict (Dict[str, [Dict[str, Any]]):
-            Dict of dictionaries containing raw DICOM tags for each slice.
-            Keys are file paths, values are dicts of DICOM tags.
-        encoded_metadata_recarray (np.recarray):
-            Encoded metadata vector for the series.
-            Contains only one row.
-            The names of the features can be obtained via
-            encoded_metadata_recarray.dtype.names.
+        Tuple of:
+
+        - ``encoded`` (``Dict[str, Any]``): Encoded metadata vector for the
+          series (one dict with sorted keys).
+        - ``raw_tags`` (``Dict[str, Dict[str, Any]]``): Raw DICOM tags for
+          each slice, keyed by file path.
     """
 
     # 1. read selected tags from dicom headers and store them in a dict of dictionaries
@@ -635,23 +648,22 @@ def generate_series_metadata_vector(
 
 def generate_slicewise_metadata_vector(
     slice_filenames: List[str], version: str = "version_1"
-) -> Tuple[List[np.recarray], Dict[str, Dict[str, Any]]]:
-    """Generate multiple encoded metadata vectors for a given list of DICOM
-    slice filenames by reading and processing DICOM tags. Each slice is encoded
-    as an individual metadata vector.
+) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    """Generate per-slice encoded metadata vectors for a list of DICOM files.
+
+    Each slice is encoded independently (no cross-slice aggregation).
 
     Args:
-        slice_filenames (List[str]): List of file paths to the DICOM files
-        version (str): Version of the encoding scheme to use.
+        slice_filenames: List of file paths to DICOM files.
+        version: Encoding scheme version to use (default ``"version_1"``).
+
     Returns:
-        dicom_tags_dict (Dict[str, [Dict[str, Any]]):
-            Dict of dictionaries containing raw DICOM tags for each slice.
-            Keys are file paths, values are dicts of DICOM tags.
-        encoded_metadata_recarrays (List[np.recarray]):
-            Encoded metadata vector for each slice.
-            Contains one array for each slice, order matches slice_filenames.
-            The names of the features can be obtained via
-            encoded_metadata_recarray.dtype.names.
+        Tuple of:
+
+        - ``encoded`` (``List[Dict[str, Any]]``): Encoded metadata vector for
+          each slice; order matches *slice_filenames*.
+        - ``raw_tags`` (``Dict[str, Dict[str, Any]]``): Raw DICOM tags for
+          each slice, keyed by file path.
     """
 
     # 1. read selected tags from dicom headers and store them in a dict of dictionaries

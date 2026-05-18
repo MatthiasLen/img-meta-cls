@@ -135,11 +135,6 @@ def parse_args() -> argparse.Namespace:
         help="Directory to save the RF model checkpoints (one .joblib file per fold).",
     )
     parser.add_argument(
-        "--use_selected",
-        action="store_true",
-        help="Use the pre-selected metadata feature subset instead of all features.",
-    )
-    parser.add_argument(
         "--folds",
         type=str,
         default=None,
@@ -199,8 +194,6 @@ def main(args: argparse.Namespace) -> None:
         sampling_type="equidistant",
         augment_conf="NONE2D",
         aggregated_metadata=False,
-        use_preselected_features=args.use_selected,
-        exclude_contrast_yn=False,
         label_names=DUKE_ORIGINAL_LABEL_NAMES,
     )
 

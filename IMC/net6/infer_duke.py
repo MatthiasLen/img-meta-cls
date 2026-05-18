@@ -86,8 +86,6 @@ def create_inference_dataloader(
         sampling_type="equidistant",
         augment_conf="IMAGENET299_CENTER",
         aggregated_metadata=False,
-        use_preselected_features=False,
-        exclude_contrast_yn=True,
         is_infer=True,
         label_names=DUKE_ORIGINAL_LABEL_NAMES,
     )

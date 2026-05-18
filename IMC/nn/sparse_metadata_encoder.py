@@ -272,7 +272,7 @@ class SparseMetadataEncoder(nn.Module):
 
         """
         TODO for the future:
-        1) Keep a small dictionary of feature types "categorical" vs "continuous" (need to modify this in melanies feature encoder).
+        1) Keep a small dictionary of feature types "categorical" vs "continuous".
         2) For categorical features: ignore value_mlp, just use index_emb (optionally with one-hot presence, i.e. put NaN instead of 0s and a single 1; or small learned embedding for each category value).
         3) For numeric: use FiLM/value MLP.
         """

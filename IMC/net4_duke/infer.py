@@ -67,7 +67,6 @@ import json
 import os
 from typing import List, Optional
 
-import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -189,11 +188,6 @@ def parse_args() -> argparse.Namespace:
         default=256,
         help="Output projection dimension (must match training).",
     )
-    parser.add_argument(
-        "--incl_regression",
-        action="store_true",
-        help="Model was trained with a regression head for the ContrastPhase task.",
-    )
 
     # ------------------------------------------------------- dataset / runtime
     parser.add_argument(
@@ -282,8 +276,6 @@ def create_inference_dataloader(
     fold_indices: Optional[List[int]],
     batch_size: int = 16,
     num_workers: int = 4,
-    use_preselected_features: bool = False,
-    exclude_contrast_yn: bool = True,
     n_slices: int = 3,
 ) -> DataLoader:
     """Create a Duke-specific :class:`~torch.utils.data.DataLoader` for inference.
@@ -298,10 +290,6 @@ def create_inference_dataloader(
                                   entire dataset without fold filtering.
         batch_size:               Mini-batch size.
         num_workers:              Number of DataLoader worker processes.
-        use_preselected_features: Restrict metadata to the pre-selected feature
-                                  subset (must match training).
-        exclude_contrast_yn:      Exclude the binary ``label_Contrast`` task
-                                  from the dataset label configuration.
         n_slices:                 Number of slices to sample from each MRI volume.
 
     Returns:
@@ -317,8 +305,6 @@ def create_inference_dataloader(
         num_samples=None,
         augment_conf="NONE2D",
         aggregated_metadata=False,
-        use_preselected_features=use_preselected_features,
-        exclude_contrast_yn=exclude_contrast_yn,
         is_infer=True,
         label_names=DUKE_ORIGINAL_LABEL_NAMES,
         n_slices=n_slices,
@@ -359,7 +345,6 @@ def load_model(
     - ``args.fusion_module_version``
     - ``args.metadata_embed_dim``
     - ``args.output_emb_dim``
-    - ``args.incl_regression``
 
     Args:
         args:               Parsed arguments from :func:`parse_args`.
@@ -385,7 +370,6 @@ def load_model(
         imputer_type=args.imputer_type,
         sparse_enc_version=args.sparse_enc_version,
         output_emb_dim=args.output_emb_dim,
-        incl_regression=args.incl_regression,
         num_classes_dict=num_classes_dict,
         metadata_input_dim=metadata_input_dim,
         metadata_embed_dim=args.metadata_embed_dim,
@@ -413,17 +397,12 @@ def run_inference(
     model: nn.Module,
     dataloader: DataLoader,
     device: torch.device,
-    incl_regression: bool = False,
 ) -> pd.DataFrame:
     """Run batch inference and return a tidy predictions DataFrame.
 
     For each sample the model produces one prediction per task.  Predictions
     are converted from class indices to human-readable label names using the
     ``label_names`` attribute of ``dataloader.dataset``.
-
-    When ``incl_regression=True``, the ``label_ContrastPhase`` head is treated
-    as a regression output: raw scalar values are rounded to the nearest
-    integer and clipped to the valid label-index range before mapping to names.
 
     A derived binary column ``label_Contrast`` is appended:
     ``"post"`` for any phase other than ``"pre"`` or ``"na"``, ``"pre"``
@@ -436,8 +415,6 @@ def run_inference(
                           (``dict[str, int]``) and a ``label_names`` attribute
                           (``dict[str, dict[int, str]]``).
         device:           Device on which to run the forward pass.
-        incl_regression:  Treat the ``label_ContrastPhase`` output as a
-                          continuous regression value instead of class logits.
 
     Returns:
         :class:`~pandas.DataFrame` with a ``Filepath`` column followed by one
@@ -461,13 +438,7 @@ def run_inference(
             outputs = model(images, metadata)
 
             for i, task in enumerate(num_classes_dict.keys()):
-                if incl_regression and task == "label_ContrastPhase":
-                    # Regression branch: round scalar → clip to valid range
-                    preds = np.rint(outputs[i].cpu().numpy()).astype(int)
-                    preds = np.clip(preds, 0, len(label_maps[task]) - 1).flatten()
-                else:
-                    preds = torch.argmax(outputs[i], dim=1).cpu().numpy()
-
+                preds = torch.argmax(outputs[i], dim=1).cpu().numpy()
                 predictions[task].extend([label_maps[task][p] for p in preds])
 
             filepaths.extend(paths)
@@ -533,8 +504,6 @@ def main() -> None:
         fold_indices=fold_indices,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
-        use_preselected_features=False,
-        exclude_contrast_yn=True,
         n_slices=args.n_slices,
     )
     print(f"✓ Loaded {len(dataloader.dataset)} samples")
@@ -545,7 +514,6 @@ def main() -> None:
     print(f"  Backbone        : {args.img_enc_backbone}")
     print(f"  Metadata dim    : {metadata_input_dim}")
     print(f"  Tasks           : {list(num_classes_dict.keys())}")
-    print(f"  Incl regression : {args.incl_regression}")
 
     # ---- model -------------------------------------------------------------
     model = load_model(
@@ -560,7 +528,6 @@ def main() -> None:
         model=model,
         dataloader=dataloader,
         device=device,
-        incl_regression=args.incl_regression,
     )
 
     # ---- save predictions --------------------------------------------------

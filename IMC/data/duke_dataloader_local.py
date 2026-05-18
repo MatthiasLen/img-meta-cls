@@ -14,8 +14,8 @@ The dataset supports:
 - Train, validation, test, and inference modes with appropriate data splits.
 - Graceful handling of missing data, corrupted files, and inconsistent metadata.
 
-This dataloader is optimized for local development and can be swapped with
-`liver_dataloader_gcp.py` for cloud-based training on Google Cloud Storage.
+This dataloader is optimized for local development and training on the Duke
+Liver MRI dataset.
 
 Authors: Melanie Dohmen, Matthias Lenga, Tuan Truong
 Date: 2026
@@ -33,7 +33,7 @@ from IMC.data.image_reader import calculate_slice_indices, DicomImageReader
 from torch.utils.data import DataLoader, Dataset
 
 from IMC.data.augment import augment
-from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES, DEFAULT_LABEL_NAMES, SELECTED_FEATURES
+from IMC.data.constants import DUKE_ORIGINAL_LABEL_NAMES
 
 logger = logging.getLogger("IMC")
 
@@ -95,8 +95,6 @@ class LiverDataset(Dataset):
         metadata_path: Path to the metadata CSV or Parquet file.
         label_csv_path: Path to the labels CSV file.
         aggregated_metadata: If True, uses aggregated metadata per series.
-        use_preselected_features: If True, uses a predefined subset of metadata features.
-        exclude_contrast_yn: If True, excludes 'label_Contrast' from classification labels.
         sampling_type: Slice sampling strategy – ``"equidistant"`` (default) or
             ``"random"``.  Passed to :meth:`open_dicom_slice_from_series`.
 
@@ -132,8 +130,6 @@ class LiverDataset(Dataset):
         metadata_path: Optional[str] = None,
         label_csv_path: Optional[str] = None,
         aggregated_metadata: bool = False,
-        use_preselected_features: bool = False,
-        exclude_contrast_yn: bool = False,
         sampling_type: str = "equidistant",
     ) -> None:
         """Initialize the LiverDataset with specified configuration.
@@ -150,8 +146,6 @@ class LiverDataset(Dataset):
             metadata_path: Path to the metadata CSV or Parquet file.
             label_csv_path: Path to the labels CSV file.
             aggregated_metadata: If True, uses aggregated metadata per series.
-            use_preselected_features: If True, uses a predefined subset of metadata features.
-            exclude_contrast_yn: If True, excludes 'label_Contrast' from classification labels.
             sampling_type: Slice sampling strategy – ``"equidistant"`` (default)
                 or ``"random"``.
         """
@@ -159,9 +153,7 @@ class LiverDataset(Dataset):
         self.num_samples = num_samples
         self.n_slices = n_slices
         self.img_size = img_size
-        self.label_names = label_names.copy() if label_names is not None else DEFAULT_LABEL_NAMES.copy()
-        if exclude_contrast_yn:
-            self.label_names.pop("label_Contrast", None)
+        self.label_names = label_names.copy() if label_names is not None else DUKE_ORIGINAL_LABEL_NAMES.copy()
         self.augment_conf = augment_conf
         self.is_infer = is_infer
         # Initialize data containers
@@ -177,15 +169,12 @@ class LiverDataset(Dataset):
         self.label_csv_path = label_csv_path if label_csv_path is not None else LABEL_CSV_PATH
         self.aggregated_metadata = aggregated_metadata
         logger.info("Using aggregated metadata: {}".format(self.aggregated_metadata))
-        self.use_preselected_features = use_preselected_features
         self.sampling_type = sampling_type
 
         # Load and process metadata
         self._reader = DicomImageReader()
         self._load_metadata_and_labels(split)
-        self.num_metadata_features = (
-            len(SELECTED_FEATURES) if use_preselected_features else len(self.metadata_df.columns)
-        )
+        self.num_metadata_features = len(self.metadata_df.columns)
 
         logger.info(f"Dataset initialized with {len(self.path_list)} samples")
 
@@ -216,13 +205,11 @@ class LiverDataset(Dataset):
                     "Set METADATA_PATH or pass --metadata_path to point to the file."
                 )
             metadata_df = metadata_df.set_index("Filepath")
+            # Drop SeriesInstanceUID if present as a column — it is not a feature
+            metadata_df = metadata_df.drop(columns=["SeriesInstanceUID"], errors="ignore")
             labels_df = labels_df.set_index("Filepath")
             metadata_df.index = metadata_df.index.map(self._normalize_dataset_index)
             labels_df.index = labels_df.index.map(self._normalize_dataset_index)
-
-            if self.use_preselected_features:
-                logger.info("Using preselected features for metadata")
-                metadata_df = metadata_df[SELECTED_FEATURES]
 
             # Filter by specified splits
             if split is not None:
@@ -284,7 +271,7 @@ class LiverDataset(Dataset):
 
         Example:
             >>> dataset.get_n_labels()
-            {'label_SequenceType': 11, 'label_FatSat': 3, ...}
+            {'SequenceType_Code_norm': 13}
         """
         return {label_name: len(classes) for label_name, classes in self.label_names.items()}
 
@@ -380,11 +367,7 @@ class LiverDataset(Dataset):
             metadata = []
             for slice_idx in slice_indices:
                 if slice_idx is None:
-                    m = (
-                        torch.full((self.num_metadata_features,), torch.nan, dtype=torch.float32)
-                        if not self.use_preselected_features
-                        else torch.full((len(SELECTED_FEATURES),), torch.nan, dtype=torch.float32)
-                    )
+                    m = torch.full((self.num_metadata_features,), torch.nan, dtype=torch.float32)
                     metadata.append(m)
                     continue
                 try:
@@ -393,11 +376,7 @@ class LiverDataset(Dataset):
                     m = torch.tensor(m, dtype=torch.float32)
                 except Exception:
                     logger.error(f"Metadata not found for {slice_filenames[slice_idx]}, using NaNs")
-                    m = (
-                        torch.full((self.num_metadata_features,), torch.nan, dtype=torch.float32)
-                        if not self.use_preselected_features
-                        else torch.full((len(SELECTED_FEATURES),), torch.nan, dtype=torch.float32)
-                    )
+                    m = torch.full((self.num_metadata_features,), torch.nan, dtype=torch.float32)
                 metadata.append(m)
         # Stack all slices into a single tensor
         return torch.stack(images, dim=0), torch.stack(metadata, dim=0)  # (N, H, W), (N, D)
@@ -652,7 +631,6 @@ if __name__ == "__main__":
         n_slices=5,
         is_infer=False,
         aggregated_metadata=False,
-        use_preselected_features=True,
         label_names=DUKE_ORIGINAL_LABEL_NAMES,
         sampling_type="random",
         augment_conf="DEFAULT2D",

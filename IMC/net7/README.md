@@ -8,6 +8,26 @@ Run one process per fold to complete the full 5-fold Duke evaluation.
 
 ---
 
+## Relation to the paper
+
+This module implements **baseline (2)** from
+[arXiv:2602.23833](https://arxiv.org/abs/2602.23833): a 3D image-only approach
+based on 3D pyramid pooling networks.  It re-implements the architecture from:
+
+> Zhu et al., "3D Pyramid Pooling Network for Abdominal MRI Series
+> Classification." *IEEE TPAMI*, 2022.
+
+| Paper exp. | Description | Duke weighted F1 (%) |
+|---|---|---|
+| (2) 3D Image-only | 3D ResNet + pyramid pooling, no metadata | 88.33 ± 1.92 |
+
+The 3D design captures volumetric context directly but does not use acquisition
+metadata.  Compared to the 2D baseline (net6, 85.09%), the volumetric encoder
+provides a modest improvement.  The proposed method (net4 with SME + BCA)
+substantially outperforms both image-only baselines (96.66%).
+
+---
+
 ## Included entry points
 
 ```text

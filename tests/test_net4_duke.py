@@ -80,13 +80,11 @@ def _make_duke_train_args(**overrides) -> argparse.Namespace:
         patience=30,
         log_dir=None,
         debug=False,
-        incl_regression=False,
         folds=None,
         n_folds=5,
         dataset_path=None,
         metadata_path=None,
         label_csv_path=None,
-        use_preselected_features=False,
         num_samples=None,
         num_workers=0,
         n_slices=N_SLICES,
@@ -117,7 +115,6 @@ def _make_duke_infer_args(**overrides) -> argparse.Namespace:
         imputer_type="contextual",
         metadata_embed_dim=128,
         output_emb_dim=256,
-        incl_regression=False,
         folds=None,
         dataset_path=None,
         metadata_path=None,
@@ -338,7 +335,6 @@ class TestDukeTrainParseArgs:
         assert args.n_folds == 5
         assert args.folds is None
         assert args.n_slices == 3
-        assert args.incl_regression is False
         assert args.debug is False
         assert args.vanilla_image_classifier is False
         assert args.metadata_embed_dim == 128
@@ -690,7 +686,6 @@ class TestDukeInferParseArgs:
         assert args.batch_size == 16
         assert args.gpu == 0
         assert args.run_eval is False
-        assert args.incl_regression is False
         assert args.folds is None
         assert args.n_slices == 3
 
@@ -792,7 +787,7 @@ class TestDukeRunInference:
     """Unit tests for :func:`~IMC.net4_duke.infer.run_inference`.
 
     The Duke run_inference signature is:
-    ``run_inference(model, dataloader, device, incl_regression=False)``
+    ``run_inference(model, dataloader, device)``
 
     Key differences from net4/infer:
     - No ``num_classes_dict`` parameter (read from ``dataloader.dataset``).
@@ -948,13 +943,11 @@ def _make_main_duke_train_args(**overrides) -> argparse.Namespace:
         patience=30,
         log_dir=None,
         debug=False,
-        incl_regression=False,
         folds=None,
         n_folds=2,  # small n_folds to keep test fast
         dataset_path=None,
         metadata_path=None,
         label_csv_path=None,
-        use_preselected_features=False,
         num_samples=None,
         num_workers=0,
         n_slices=N_SLICES,
@@ -1195,7 +1188,6 @@ def _make_main_duke_infer_args(**overrides) -> argparse.Namespace:
         imputer_type="contextual",
         metadata_embed_dim=128,
         output_emb_dim=256,
-        incl_regression=False,
         folds=None,
         dataset_path=None,
         metadata_path=None,

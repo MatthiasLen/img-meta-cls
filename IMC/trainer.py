@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-from sklearn import logger
 import torch
 import torch.profiler
 from typing import Optional, Union
@@ -65,7 +64,6 @@ class Trainer:
         patience: int = 5,
         task_weights: Union[list, None] = None,
         use_mixed_precision: bool = True,
-        incl_regression: bool = True,
         profiler_dir: Optional[str] = None,
         use_z_score_norm: bool = True,
         trainable_task_heads: Optional[list] = None,
@@ -80,9 +78,8 @@ class Trainer:
         self.tb_logger = tb_logger
         self.logger = logger
         self.patience = patience
-        self.task_weights = task_weights if task_weights is not None else [1.0] * 7
+        self.task_weights = task_weights if task_weights is not None else [1.0] * len(task_names)
         self.use_mixed_precision = use_mixed_precision
-        self.incl_regression = incl_regression
         # Directory for torch.profiler TensorBoard traces (None = disabled)
         self.profiler_dir = profiler_dir
         self.use_z_score_norm = use_z_score_norm
@@ -175,14 +172,7 @@ class Trainer:
             target_np = target.detach().cpu().numpy()
             mask_np = mask.detach().cpu().numpy()
 
-            is_regression_task = self.task_names[i] == "label_ContrastPhase"
-            if self.incl_regression and is_regression_task:  # regression task
-                # For regression, we round predictions to nearest integer class
-                pred = np.rint(pred).astype(int)
-                pred_cls = np.clip(pred, 0, 4)  # Ensure predictions are within valid class range
-                pred_cls = pred_cls.flatten()
-            else:
-                pred_cls = np.argmax(pred, axis=1)
+            pred_cls = np.argmax(pred, axis=1)
             # Only compute accuracy for masked (valid) targets
             valid_indices = mask_np.astype(bool)
             if valid_indices.sum() > 0:  # Avoid division by zero
@@ -320,7 +310,7 @@ class Trainer:
 
                 # Log gradient norms periodically
                 if batch_id % 50 == 0:
-                    logger.info(f"Max gradient norm: {max_grad_norm:.4f}")
+                    self.logger.info(f"Max gradient norm: {max_grad_norm:.4f}")
 
             if self.use_mixed_precision:
                 self.scaler.unscale_(self.optimizer)

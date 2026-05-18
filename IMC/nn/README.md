@@ -26,7 +26,7 @@ For the metadata encoders in particular, the important distinction is between:
 | `sparse_metadata_encoder.py` | `SparseMetadataEncoder` | Sparse metadata encoder that skips NaNs, uses feature embeddings plus FiLM-style value modulation, and aggregates observed features | Core sparse metadata family aligned with the paper's missingness-aware metadata modeling |
 | `sparse_metadata_encoder_v2.py` | `SparseMetadataEncoder` | Transformer-based variant with CLS-token aggregation over a dense feature sequence | Experimental alternative sparse encoder; available in the repo but not the default Duke path |
 | `sparse_metadata_encoder_v5.py` | `SparseMetadataEncoder` | Later sparse encoder with stabilized FiLM, feature self-attention, and deeper post-processing | Experimental later sparse variant; selectable in Duke scripts but not the default setting |
-| `multi_task_head.py` | `MultiTaskHead`, `SimplifiedMultiTaskHead` | Shared classification heads for one or more tasks | Used across the paper models and baselines |
+| `multi_task_head.py` | `MultiTaskHead` | Shared classification heads for one or more tasks | Used across the paper models and baselines |
 | `multi_task_loss.py` | `MultiTaskLoss` | Combined loss for multi-class, binary, and optional regression tasks with masking | Used across the paper models and baselines |
 | `resnet_3d.py` | `ResNet3D` | 3D residual backbone for volumetric MRI inputs | Used by the 3D volumetric baseline |
 | `densenet_3d.py` | `DenseNet3D`, `densenet121_3d`, `densenet169_3d`, `densenet201_3d` | 3D DenseNet backbones for volumetric MRI inputs | Alternative backbones for the 3D volumetric baseline |

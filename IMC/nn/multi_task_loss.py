@@ -35,14 +35,12 @@ class MultiTaskLoss(torch.nn.Module):
     def __init__(
         self,
         label_smoothing: float = 0.1,
-        incl_regression: bool = True,
         task_names: List[str] = None,
         task_class_weights: dict = None,
     ) -> None:
         """
         Args:
             label_smoothing: Label smoothing factor for CrossEntropyLoss.
-            incl_regression: Whether a regression head is included for label_ContrastPhase.
             task_names: Ordered list of task name strings matching model output order.
             task_class_weights: Optional dict mapping task name → list of per-class weights.
                 E.g. ``{"label_DIXON": [0.29, 4.99, 5.08, 6.51, 0.0]}``.
@@ -52,8 +50,6 @@ class MultiTaskLoss(torch.nn.Module):
         # Default shared losses (no per-class weighting)
         self._default_ce = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         self.bce_loss = nn.BCEWithLogitsLoss()
-        self.regression_loss = nn.MSELoss()
-        self.incl_regression = incl_regression
         self.task_names = task_names
         # Build per-task CE losses (only for tasks that have class weights)
         self._task_ce: dict = {}
@@ -112,12 +108,7 @@ class MultiTaskLoss(torch.nn.Module):
             valid_preds = pred[valid_samples_mask]
             valid_targets = target[valid_samples_mask]
 
-            # Check if this is the regression task
-            is_regression = self.incl_regression and task_name == "label_ContrastPhase"
-
-            if is_regression:
-                task_loss = self.regression_loss(valid_preds.squeeze(1), valid_targets.to(valid_preds.dtype))
-            elif pred.shape[1] == 1:
+            if pred.shape[1] == 1:
                 # Binary classification task
                 task_loss = self.bce_loss(valid_preds.squeeze(1), valid_targets.float())
             else:

@@ -6,8 +6,8 @@ an optional Random-Forest metadata gate for ``SequenceType_Code_norm``.
 
 Entry points
 ------------
-- :mod:`IMC.net6.train`       – 5-fold cross-validation training (image model).
-- :mod:`IMC.net6.infer`       – Batch inference with heuristic RF gate.
-- :mod:`IMC.net6.train_rf`    – Train per-fold Random Forest classifiers on
+- :mod:`IMC.net6.train_duke`       – 5-fold cross-validation training (image model).
+- :mod:`IMC.net6.infer_duke`       – Batch inference with heuristic RF gate.
+- :mod:`IMC.net6.train_rf_duke`    – Train per-fold Random Forest classifiers on
                                 Duke tabular metadata.
 """

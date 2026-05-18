@@ -15,7 +15,6 @@ def build_model(
     imputer_type="contextual",
     sparse_enc_version="v1",
     output_emb_dim=128,
-    incl_regression=False,
     num_classes_dict: dict = None,
     metadata_input_dim: int = None,
     metadata_embed_dim: int = 128,
@@ -37,7 +36,6 @@ def build_model(
         imputer_type: If using imputer encoder, which type to use ("contextual" or "ignore").
         sparse_enc_version: If using sparse metadata encoder, which version to use ("v1", "v2", or "v5").
         output_emb_dim: Output embedding dimension for metadata encoder (used in combined model).
-        incl_regression: Whether to include regression head for predicting continuous labels.
         num_classes_dict:   Mapping from task name to number of classes
                             (or ``1`` for regression), e.g.
                             ``{"label_SequenceType": 5, ...}``.
@@ -59,13 +57,11 @@ def build_model(
         if image_classifier_type == "vanilla":
             model = SimpleImageBasedClassifier(
                 num_classes_dict=num_classes_dict,
-                incl_regression=incl_regression,
             )
         else:
             model = ImageBasedClassifier(
                 num_classes_dict=num_classes_dict,
                 img_enc_backbone=img_enc_backbone,
-                incl_regression=incl_regression,
                 n_channels=kwargs.get("n_channels", 1),
             )
     elif modality == "metadata":
@@ -77,7 +73,6 @@ def build_model(
                 output_emb_dim=output_emb_dim,
                 metadata_encoder_type="imputer",
                 imputer_type=imputer_type,
-                incl_regression=incl_regression,
             )
         elif metadata_enc_type == "sparse":
             assert sparse_enc_version in ["v1", "v2", "v5"], "Invalid sparse encoder version"
@@ -88,7 +83,6 @@ def build_model(
                 output_emb_dim=output_emb_dim,
                 metadata_encoder_type="sparse",
                 sparse_enc_version=sparse_enc_version,
-                incl_regression=incl_regression,
             )
         else:
             raise ValueError(f"Unknown metadata_enc_type '{metadata_enc_type}'.")
@@ -97,7 +91,6 @@ def build_model(
             metadata_input_dim=metadata_input_dim,
             num_classes_dict=num_classes_dict,
             img_enc_backbone=img_enc_backbone,
-            incl_regression=incl_regression,
             metadata_encoder_type=metadata_enc_type,
             imputer_type=imputer_type,
             sparse_enc_version=sparse_enc_version,
