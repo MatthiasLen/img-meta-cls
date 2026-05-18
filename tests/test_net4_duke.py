@@ -327,18 +327,18 @@ class TestDukeTrainParseArgs:
 
         assert args.modality == "combined"
         assert args.img_enc_backbone == "densenet121"
-        assert args.fusion_module_version == "v1"
-        assert args.metadata_enc_type == "imputer"
+        assert args.fusion_module_version == "v2"
+        assert args.metadata_enc_type == "sparse"
         assert args.gpu == 0
         assert args.patience == 30
         assert args.num_epochs == 30
         assert args.n_folds == 5
         assert args.folds is None
-        assert args.n_slices == 3
+        assert args.n_slices == 10
         assert args.debug is False
         assert args.vanilla_image_classifier is False
         assert args.metadata_embed_dim == 128
-        assert args.output_emb_dim == 256
+        assert args.output_emb_dim == 128
 
     def test_modality_choices_valid(self) -> None:
         """Accepted modality values: image, metadata, combined."""

@@ -205,7 +205,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--n_slices",
         type=int,
-        default=3,
+        default=10,
         help="Number of slices to sample from each MRI volume.",
     )
     parser.add_argument(
@@ -226,7 +226,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fusion_module_version",
         type=str,
-        default="v1",
+        default="v2",
         choices=["v1", "v2", "concat"],
         help="Cross-attention fusion module variant (combined mode only).",
     )
@@ -235,7 +235,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--metadata_enc_type",
         type=str,
-        default="imputer",
+        default="sparse",
         choices=["imputer", "sparse"],
         help=(
             "Metadata encoder type.  "
@@ -270,7 +270,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output_emb_dim",
         type=int,
-        default=256,
+        default=128,
         help="Output projection embedding dimension.",
     )
     parser.add_argument(

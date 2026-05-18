@@ -67,6 +67,7 @@ python -m IMC.net4_duke.train \
     --vanilla_image_classifier \
     --img_enc_backbone densenet121 \
     --n_slices 1 \
+    --batch_size 64 \
     --gpu 0
 ```
 
@@ -78,6 +79,7 @@ python -m IMC.net4_duke.train \
     --imputer_type ignore \
     --fusion_module_version concat \
     --n_slices 3 \
+    --batch_size 64 \
     --gpu 0
 ```
 
@@ -89,6 +91,7 @@ python -m IMC.net4_duke.train \
     --imputer_type contextual \
     --fusion_module_version concat \
     --n_slices 3 \
+    --batch_size 64 \
     --gpu 0
 ```
 
@@ -98,11 +101,12 @@ python -m IMC.net4_duke.train \
     --modality combined \
     --metadata_enc_type sparse \
     --sparse_enc_version v1 \
-    --fusion_module_version v1 \
+    --fusion_module_version v2 \
     --n_slices 10 \
+    --batch_size 16 \
     --gpu 0
 ```
-
+The batch size is adjusted to 16 for the proposed method due to GPU memory constraints with 10 slices.
 ---
 
 ## Directory layout
