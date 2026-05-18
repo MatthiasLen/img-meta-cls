@@ -153,8 +153,6 @@ class LiverDataset(Dataset):
         self.num_samples = num_samples
         self.n_slices = n_slices
         self.img_size = img_size
-        if split is None:
-            split = ["fold_0", "fold_1", "fold_2", "fold_3", "fold_4"]
         self.label_names = label_names.copy() if label_names is not None else DUKE_ORIGINAL_LABEL_NAMES.copy()
         self.augment_conf = augment_conf
         self.is_infer = is_infer

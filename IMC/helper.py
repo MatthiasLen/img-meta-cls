@@ -20,6 +20,16 @@ except ImportError:
     TENSORBOARD_AVAILABLE = False
 
 
+def _debug_mode() -> bool:
+    """Read DEBUG_MODE from the environment at call time.
+
+    Scripts that set ``os.environ['DEBUG_MODE']`` *after* importing this module
+    (e.g. in their ``main()``) will still see the correct value because the
+    environment is checked on every call rather than once at import.
+    """
+    return os.environ.get("DEBUG_MODE", "0") == "1"
+
+
 def plot_batch_per_sample(batch, figsize=(15, 10), title=None, id=1):
     """
     Plots each sample (set of images) in a row.

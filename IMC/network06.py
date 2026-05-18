@@ -36,10 +36,8 @@ from IMC.nn.multi_task_head import MultiTaskHead
 import torch
 import torch.nn as nn
 import logging
-import os
 
 logger = logging.getLogger("IMC")
-DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
 
 
 class PixelOnlyModel(nn.Module):

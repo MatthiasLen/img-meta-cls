@@ -6,15 +6,11 @@ import torch.profiler
 from typing import Optional, Union
 from torch.utils.data import DataLoader
 
-from IMC.helper import normalize_per_sample
+from IMC.helper import normalize_per_sample, _debug_mode
 from IMC.tensorboard_logging import log_batch_metrics, log_training_metrics
 from pathlib import Path
 
 import os
-
-DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
-if DEBUG_MODE:
-    print(f"DEBUG_MODE is {'ON' if DEBUG_MODE else 'OFF'}")
 
 
 def classification_losses(outputs: list, targets: list) -> list:
@@ -40,7 +36,7 @@ def classification_losses(outputs: list, targets: list) -> list:
         pred_cl = np.argmax(pred, axis=1)
         accuracy = np.mean(pred_cl == target_cl)
         accu_list.append(accuracy)
-        if DEBUG_MODE:
+        if _debug_mode():
             print(f"Task {i} Accuracy:", accuracy)
 
     return accu_list
@@ -281,7 +277,7 @@ class Trainer:
                 )
                 raise RuntimeError("NaN outputs detected - stopping training")
 
-            if DEBUG_MODE:
+            if _debug_mode():
                 # Loss after scaling
                 if self.use_mixed_precision:
                     scaled_loss = loss * self.scaler.get_scale()
@@ -293,7 +289,7 @@ class Trainer:
                     self.scaler.scale(loss).backward()
                 else:
                     loss.backward()
-            if DEBUG_MODE:
+            if _debug_mode():
                 self.logger.info("Check gradient after backward")
                 has_nan_grads = False
                 max_grad_norm = 0.0

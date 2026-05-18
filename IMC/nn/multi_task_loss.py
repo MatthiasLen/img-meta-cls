@@ -1,11 +1,11 @@
 import torch
 import torch.nn as nn
 import logging
-import os
 from typing import List
 
+from IMC.helper import _debug_mode
+
 logger = logging.getLogger("IMC")
-DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
 
 
 class MultiTaskLoss(torch.nn.Module):
@@ -121,7 +121,7 @@ class MultiTaskLoss(torch.nn.Module):
                 task_loss = task_loss * task_weights[i]
 
             # Debugging: check for invalid loss values
-            if DEBUG_MODE:
+            if _debug_mode():
                 if torch.isnan(task_loss).any() or torch.isinf(task_loss).any():
                     logger.error(f"Invalid loss for task {i}: {task_loss.item()}")
 
@@ -130,13 +130,13 @@ class MultiTaskLoss(torch.nn.Module):
 
         # All tasks were masked in this batch — return None to signal skip
         if not task_losses:
-            if DEBUG_MODE:
+            if _debug_mode():
                 logger.info("All tasks masked in this batch — no loss computed.")
             return None, individual_losses
 
         total_loss = sum(task_losses)
 
-        if DEBUG_MODE:
+        if _debug_mode():
             logger.info(f"Total loss: {total_loss.item()}")
 
         return total_loss, individual_losses
