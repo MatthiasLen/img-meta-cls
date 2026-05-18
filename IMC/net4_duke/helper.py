@@ -94,6 +94,8 @@ def build_model(
             metadata_encoder_type=metadata_enc_type,
             imputer_type=imputer_type,
             sparse_enc_version=sparse_enc_version,
+            metadata_embed_dim=metadata_embed_dim,
+            output_emb_dim=output_emb_dim,
             fusion_module_version=fusion_module_version,
             dropout_metadata=metadata_dropout,
             scalar_modulation=kwargs.get("scalar_modulation", False),
