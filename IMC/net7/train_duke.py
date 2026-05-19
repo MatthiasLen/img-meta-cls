@@ -292,22 +292,22 @@ def main(args: argparse.Namespace) -> None:
     with open(os.path.join(fold_log_dir, "config.json"), "w") as f:
         json.dump(config, f, indent=4)
 
-    print("=" * 80)
-    print(f"Network07 Duke  –  Fold {fold_idx} / {n_folds - 1}")
-    print(f"  Train folds : {train_folds}")
-    print(f"  Val fold    : {val_fold}")
-    print(f"  Test fold   : {test_fold}")
-    print(f"  Device      : {device}")
-    print(f"  Backbone    : {args.backbone_type}")
-    print(f"  Log dir     : {fold_log_dir}")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info(f"Network07 Duke  –  Fold {fold_idx} / {n_folds - 1}")
+    logger.info(f"  Train folds : {train_folds}")
+    logger.info(f"  Val fold    : {val_fold}")
+    logger.info(f"  Test fold   : {test_fold}")
+    logger.info(f"  Device      : {device}")
+    logger.info(f"  Backbone    : {args.backbone_type}")
+    logger.info(f"  Log dir     : {fold_log_dir}")
+    logger.info("=" * 80)
 
     log_training_start(logger, config=config)
 
-    print("Dataset environment configured:")
-    print(f"  DEBUG_MODE = {os.environ['DEBUG_MODE']}")
-    print(f"  LOCAL_DATASET_PATH = {os.environ['LOCAL_DATASET_PATH']}")
-    print(f"  LABEL_CSV_PATH = {os.environ['LABEL_CSV_PATH']}")
+    logger.info("Dataset environment configured:")
+    logger.info(f"  DEBUG_MODE = {os.environ['DEBUG_MODE']}")
+    logger.info(f"  LOCAL_DATASET_PATH = {os.environ['LOCAL_DATASET_PATH']}")
+    logger.info(f"  LABEL_CSV_PATH = {os.environ['LABEL_CSV_PATH']}")
 
     with capture_console_to_log(logger):
         # ---- Datasets ----
@@ -423,7 +423,7 @@ def main(args: argparse.Namespace) -> None:
         print(f"Outputs in   : {fold_log_dir}")
 
     log_training_end(logger)
-    print("=" * 80)
+    logger.info("=" * 80)
 
 
 if __name__ == "__main__":

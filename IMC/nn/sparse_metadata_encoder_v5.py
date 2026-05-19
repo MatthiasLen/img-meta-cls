@@ -107,11 +107,11 @@ class SparseMetadataEncoder(nn.Module):
         # 5) FiLM hidden dim
         hidden_dim = embed_dim * value_hidden_expansion
 
-        print("Selected parameters:")
-        print(f"embed_dim  = {embed_dim}")
-        print(f"depth      = {depth}")
-        print(f"num_heads  = {num_heads}")
-        print(f"hidden_dim = {hidden_dim}")
+        # print("Selected parameters:")
+        # print(f"embed_dim  = {embed_dim}")
+        # print(f"depth      = {depth}")
+        # print(f"num_heads  = {num_heads}")
+        # print(f"hidden_dim = {hidden_dim}")
 
         # ---------------------------------------------------------------------
 

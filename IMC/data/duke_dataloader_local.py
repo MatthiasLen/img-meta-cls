@@ -124,7 +124,7 @@ class LiverDataset(Dataset):
         img_size: int = 256,
         label_names: Optional[Dict[str, List[str]]] = None,
         augment_conf: str = "NONE2D",
-        split: List[str] | None = ["fold_0"],
+        split: List[str] | None = None,
         is_infer: bool = False,
         local_dataset_path: Optional[str] = None,
         metadata_path: Optional[str] = None,
@@ -492,7 +492,7 @@ def get_train_dataloader(
     num_workers: int,
     shuffle: bool = True,
     num_samples: Optional[int] = 100,
-    folder_split: List[str] = ["fold_0", "fold_1", "fold_2", "fold_3", "fold_4", "fold_5", "fold_6", "fold_7"],
+    folder_split: List[str] | None = None,
     **ds_kwargs: Dict,
 ) -> DataLoader:
     """
@@ -509,6 +509,8 @@ def get_train_dataloader(
     Returns:
         Configured DataLoader for training.
     """
+    if folder_split is None:
+        folder_split = ["fold_0", "fold_1", "fold_2"]
     dataset = LiverDataset(split=folder_split, num_samples=num_samples, augment_conf="NONE2D", **ds_kwargs)
     return DataLoader(
         dataset,
@@ -523,7 +525,7 @@ def get_valid_dataloader(
     num_workers: int,
     shuffle: bool = False,
     num_samples: Optional[int] = 100,
-    folder_split: List[str] = ["fold_8"],
+    folder_split: List[str] | None = None,
     **ds_kwargs: Dict,
 ) -> DataLoader:
     """
@@ -539,6 +541,8 @@ def get_valid_dataloader(
     Returns:
         Configured DataLoader for validation.
     """
+    if folder_split is None:
+        folder_split = ["fold_3"]
     dataset = LiverDataset(split=folder_split, num_samples=num_samples, augment_conf="NONE2D", **ds_kwargs)
     return DataLoader(
         dataset,
@@ -553,7 +557,7 @@ def get_test_dataloader(
     num_workers: int,
     shuffle: bool = False,
     num_samples: Optional[int] = 100,
-    folder_split: List[str] = ["fold_9"],
+    folder_split: List[str] | None = None,
     **ds_kwargs: Dict,
 ) -> DataLoader:
     """
@@ -569,6 +573,8 @@ def get_test_dataloader(
     Returns:
         Configured DataLoader for testing.
     """
+    if folder_split is None:
+        folder_split = ["fold_4"]
     dataset = LiverDataset(split=folder_split, num_samples=num_samples, augment_conf="NONE2D", **ds_kwargs)
     return DataLoader(
         dataset,

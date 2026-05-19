@@ -168,8 +168,9 @@ uv run python -m IMC.net4_duke.train \
   --modality combined \
   --metadata_enc_type sparse \
   --sparse_enc_version v1 \
-  --fusion_module_version v1 \
+  --fusion_module_version v2 \
   --n_slices 10 \
+  --batch_size 16 \
   --gpu 0
 ```
 

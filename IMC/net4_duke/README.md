@@ -67,6 +67,7 @@ python -m IMC.net4_duke.train \
     --vanilla_image_classifier \
     --img_enc_backbone densenet121 \
     --n_slices 1 \
+    --batch_size 64 \
     --gpu 0
 ```
 
@@ -78,6 +79,7 @@ python -m IMC.net4_duke.train \
     --imputer_type ignore \
     --fusion_module_version concat \
     --n_slices 3 \
+    --batch_size 64 \
     --gpu 0
 ```
 
@@ -89,6 +91,7 @@ python -m IMC.net4_duke.train \
     --imputer_type contextual \
     --fusion_module_version concat \
     --n_slices 3 \
+    --batch_size 64 \
     --gpu 0
 ```
 
@@ -98,11 +101,12 @@ python -m IMC.net4_duke.train \
     --modality combined \
     --metadata_enc_type sparse \
     --sparse_enc_version v1 \
-    --fusion_module_version v1 \
+    --fusion_module_version v2 \
     --n_slices 10 \
+    --batch_size 16 \
     --gpu 0
 ```
-
+The batch size is adjusted to 16 for the proposed method due to GPU memory constraints with 10 slices.
 ---
 
 ## Directory layout
@@ -145,7 +149,7 @@ python -m IMC.net4_duke.train \
     --img_enc_backbone densenet121 \
     --metadata_enc_type sparse \
     --sparse_enc_version v1 \
-    --fusion_module_version v1 \
+    --fusion_module_version v2 \
     --gpu 0
 ```
 
@@ -191,10 +195,10 @@ python -m IMC.net4_duke.train \
 | `--n_folds` | `5` | Total number of folds |
 | `--patience` | `30` | Early-stopping patience (epochs) |
 | `--log_dir` | `./logs` | Root output directory |
-| `--metadata_enc_type` | `imputer` | `imputer` / `sparse` |
+| `--metadata_enc_type` | `sparse` | `imputer` / `sparse` |
 | `--sparse_enc_version` | `v1` | `v1` / `v2` / `v5` |
-| `--fusion_module_version` | `v1` | `v1` / `v2` / `concat` |
-| `--n_slices` | `3` | MRI slices sampled per volume (use `10` for the proposed method) |
+| `--fusion_module_version` | `v2` | `v1` / `v2` / `concat` |
+| `--n_slices` | `10` | MRI slices sampled per volume (use `10` for the proposed method) |
 | `--dataset_path` | env default | Override `LOCAL_DATASET_PATH` |
 | `--label_csv_path` | env default | Override `LABEL_CSV_PATH` |
 | `--metadata_path` | env default | Override `METADATA_PATH` |
@@ -260,9 +264,9 @@ done
 | `--gpu` | `0` | CUDA device index |
 | `--batch_size` | `16` | Inference mini-batch size |
 | `--run_eval` | off | Evaluate against ground-truth labels |
-| `--metadata_enc_type` | `imputer` | Must match training |
-| `--fusion_module_version` | `v1` | Must match training |
-| `--n_slices` | `3` | Must match training |
+| `--metadata_enc_type` | `sparse` | Must match training |
+| `--fusion_module_version` | `v2` | Must match training |
+| `--n_slices` | `10` | Must match training |
 
 ---
 

@@ -193,7 +193,7 @@ def run_inference(
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Inferring"):
-            images, metadata, paths = batch
+            images, metadata, paths, _ = batch
             images = images.to(device)
 
             # Image logits: list of (B, n_classes_i) per task

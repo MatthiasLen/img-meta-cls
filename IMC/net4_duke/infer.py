@@ -148,14 +148,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fusion_module_version",
         type=str,
-        default="v1",
+        default="v2",
         choices=["v1", "v2", "concat"],
         help="Fusion module version (combined mode; must match training).",
     )
     parser.add_argument(
         "--metadata_enc_type",
         type=str,
-        default="imputer",
+        default="sparse",
         choices=["imputer", "sparse"],
         help=(
             "Metadata encoder type (must match training).  "
@@ -185,7 +185,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output_emb_dim",
         type=int,
-        default=256,
+        default=128,
         help="Output projection dimension (must match training).",
     )
 
@@ -220,7 +220,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--n_slices",
         type=int,
-        default=3,
+        default=10,
         help="Number of slices to sample from each MRI volume.",
     )
     parser.add_argument(
@@ -430,7 +430,7 @@ def run_inference(
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Inferring"):
-            images, metadata, paths = batch
+            images, metadata, paths, _ = batch
             images = images.to(device)
             metadata = metadata.to(device)
             images = normalize_per_sample(images)
@@ -442,7 +442,6 @@ def run_inference(
                 predictions[task].extend([label_maps[task][p] for p in preds])
 
             filepaths.extend(paths)
-
     # Derive binary contrast label from the phase prediction
     if "label_ContrastPhase" in label_maps:
         predictions["label_Contrast"] = [

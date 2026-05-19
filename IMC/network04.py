@@ -59,10 +59,10 @@ from IMC.nn.multi_task_head import MultiTaskHead
 from torchvision.models.densenet import DenseNet121_Weights
 from torchvision import models
 import logging
-import os
+
+from IMC.helper import _debug_mode
 
 logger = logging.getLogger("IMC")
-DEBUG_MODE = os.environ.get("DEBUG_MODE", "0") == "1"
 
 
 class SliceFeatureFusion(nn.Module):
@@ -607,7 +607,7 @@ class MRISequenceClassifier(nn.Module):
         Returns:
             tuple: (seq_logits, plane_logits, body_logits, contrast_logits)
         """
-        if DEBUG_MODE:
+        if _debug_mode():
             logger.debug(f"Input image_slices shape: {image_slices.shape}")
             logger.debug(f"Input metadata shape: {metadata.shape}")
             logger.debug(
@@ -631,7 +631,7 @@ class MRISequenceClassifier(nn.Module):
         slice_feats = self.image_encoder(image_slices)  # (B, N_slices, slice_feat_dim)
         fused_img_feat = self.slice_fusion(slice_feats)  # (B, fused_feat_dim)
 
-        if DEBUG_MODE:
+        if _debug_mode():
             logger.debug(f"Fused image feature shape: {fused_img_feat.shape}")
             logger.debug(
                 f"Fused image feature stats: min={fused_img_feat.min():.3f}, max={fused_img_feat.max():.3f}, mean={fused_img_feat.mean():.3f}"
@@ -649,7 +649,7 @@ class MRISequenceClassifier(nn.Module):
         # Encode metadata
         metadata_feat = self.metadata_encoder(metadata)  # (B, metadata_embed_dim) or (B, N, metadata_embed_dim)
 
-        if DEBUG_MODE:
+        if _debug_mode():
             logger.debug(f"Metadata feature shape: {metadata_feat.shape}")
             logger.debug(
                 f"Metadata feature stats: min={metadata_feat.min():.3f}, max={metadata_feat.max():.3f}, mean={metadata_feat.mean():.3f}"
@@ -662,7 +662,7 @@ class MRISequenceClassifier(nn.Module):
         # Fuse features from image embedding and meta data embedding
         joint_feat = self.embedding_fusion(fused_img_feat, metadata_feat)
 
-        if DEBUG_MODE:
+        if _debug_mode():
             logger.debug(f"Joint feature shape: {joint_feat.shape}")
             logger.debug(
                 f"Joint feature stats: min={joint_feat.min():.3f}, max={joint_feat.max():.3f}, mean={joint_feat.mean():.3f}"
@@ -680,7 +680,7 @@ class MRISequenceClassifier(nn.Module):
             for post_proc in self.post_processors:
                 res = post_proc(res, metadata, self._task_names)
 
-        if DEBUG_MODE:
+        if _debug_mode():
             for i, r in enumerate(res):
                 logger.debug(f"Output logits for task {i} shape: {r.shape}")
                 logger.debug(
